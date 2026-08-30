@@ -46,10 +46,6 @@ want both.
 `DESIGN.md` carries the reasoning: why failure identity is the hard part, why collisions
 are worse than churn, and why the exit code is the product.
 
-## Status
-
-In development. Not yet released.
-
 ## License
 
 MIT
