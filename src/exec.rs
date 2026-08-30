@@ -53,10 +53,14 @@ extern "C" fn nudge(sig: libc::c_int) {
     }
 }
 
-/// Run `argv` and return the exit code `ck` itself should exit with.
-pub fn run(argv: &[String]) -> i32 {
+/// Run `argv` with `env` added to its environment, and return the exit code
+/// `ck` itself should exit with.
+pub fn run(env: &[(String, String)], argv: &[String]) -> i32 {
     let mut cmd = Command::new(&argv[0]);
     cmd.args(&argv[1..]);
+    for (name, value) in env {
+        cmd.env(name, value);
+    }
     // 0 means "your own pid": the child becomes its own group leader.
     cmd.process_group(0);
 
@@ -119,11 +123,95 @@ pub fn run(argv: &[String]) -> i32 {
     }
 }
 
+/// Words a shell runs itself. There is no executable behind them, so no
+/// wrapper can run them — `cd` is the one that matters most, because a child
+/// process cannot change its parent's directory even in principle.
+///
+/// Checked only after an exec has already failed. A name on this list that
+/// does exist as a program on PATH still runs normally, which is why the check
+/// belongs here and not in front of the spawn.
+const SHELL_WORDS: &[&str] = &[
+    ".",
+    "alias",
+    "bg",
+    "bind",
+    "builtin",
+    "caller",
+    "case",
+    "cd",
+    "command",
+    "compgen",
+    "complete",
+    "declare",
+    "dirs",
+    "disown",
+    "do",
+    "done",
+    "elif",
+    "else",
+    "enable",
+    "esac",
+    "eval",
+    "exec",
+    "exit",
+    "export",
+    "fg",
+    "fi",
+    "for",
+    "function",
+    "getopts",
+    "hash",
+    "history",
+    "if",
+    "in",
+    "jobs",
+    "let",
+    "local",
+    "logout",
+    "mapfile",
+    "popd",
+    "pushd",
+    "read",
+    "readarray",
+    "readonly",
+    "return",
+    "select",
+    "set",
+    "shift",
+    "shopt",
+    "source",
+    "suspend",
+    "then",
+    "times",
+    "trap",
+    "typeset",
+    "ulimit",
+    "umask",
+    "unalias",
+    "unset",
+    "until",
+    "while",
+];
+
 /// Report a command that never started, with the conventional code. This is
 /// never a clean run and never a comparison.
 fn spawn_failure(program: &str, e: &std::io::Error) -> i32 {
     use std::io::ErrorKind;
     match e.kind() {
+        ErrorKind::NotFound if SHELL_WORDS.contains(&program) => {
+            // Principle 7: the error is a return value. "command not found"
+            // here is true and useless — it sends the caller looking for a
+            // missing binary rather than telling them the thing they wrote can
+            // never be wrapped.
+            eprintln!(
+                "ck: {program} is a shell builtin, not a program.\n\
+                 \n\
+                 There is no executable behind it, so ck has nothing to run. Use it\n\
+                 without ck:\n\
+                 \n    {program} ..."
+            );
+            127
+        }
         ErrorKind::NotFound => {
             eprintln!("ck: {program}: command not found");
             127

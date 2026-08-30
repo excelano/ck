@@ -25,6 +25,14 @@ USAGE
         ck cargo clippy --all-targets
         ck make check
 
+    Leading NAME=VALUE tokens are added to the command's environment, as a
+    shell would.
+
+        ck RUST_BACKTRACE=1 cargo test
+
+    Shell builtins — cd, export, source and the rest — have no executable
+    behind them and cannot be wrapped. Run those without ck.
+
     -- is accepted but never required. Use it when the command itself begins
     with a flag, or when its name is a word ck reserves.
 
@@ -62,7 +70,7 @@ fn main() -> std::process::ExitCode {
             eprintln!("ck: show needs a baseline store, which this build does not have");
             2
         }
-        Ok(Invocation::Run(argv)) => exec::run(&argv),
+        Ok(Invocation::Run { env, argv }) => exec::run(&env, &argv),
         Err(e @ ParseError::UnknownFlag(_)) => usage_error(&e),
         Err(e) => usage_error(&e),
     };

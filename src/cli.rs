@@ -13,8 +13,12 @@ pub enum Invocation {
     Version,
     /// Retrieve suppressed detail for one failure.
     Show(String),
-    /// Run this command line, verbatim.
-    Run(Vec<String>),
+    /// Run this command line, verbatim, with these variables added to its
+    /// environment.
+    Run {
+        env: Vec<(String, String)>,
+        argv: Vec<String>,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -27,6 +31,9 @@ pub enum ParseError {
     EmptyAfterSeparator,
     /// `show` with no identity.
     ShowNeedsIdentity,
+    /// `ck FOO=1` with nothing to run. A shell would set the variable in
+    /// itself; a wrapper has no such thing to set.
+    AssignmentsWithoutCommand,
 }
 
 impl std::fmt::Display for ParseError {
@@ -54,6 +61,13 @@ impl std::fmt::Display for ParseError {
                  To run a command actually named 'show', separate it with --:\n\
                  \n    ck -- show ..."
             ),
+            Self::AssignmentsWithoutCommand => write!(
+                f,
+                "variable assignments with no command to run\n\
+                 \n\
+                 ck can add variables to a command's environment, but it cannot set\n\
+                 them in your shell the way a bare assignment does. Run that without ck."
+            ),
         }
     }
 }
@@ -72,13 +86,18 @@ pub fn parse(args: &[String]) -> Result<Invocation, ParseError> {
         return Ok(Invocation::Help);
     };
 
-    // Everything after `--` is the command, untouched.
+    // Everything after `--` is the command, untouched. Untouched includes not
+    // reading leading assignments: `--` means stop interpreting, so
+    // `ck -- FOO=1 x` looks for a program actually named `FOO=1`.
     if first == "--" {
         let rest = &args[1..];
         return if rest.is_empty() {
             Err(ParseError::EmptyAfterSeparator)
         } else {
-            Ok(Invocation::Run(rest.to_vec()))
+            Ok(Invocation::Run {
+                env: Vec::new(),
+                argv: rest.to_vec(),
+            })
         };
     }
 
@@ -99,7 +118,45 @@ pub fn parse(args: &[String]) -> Result<Invocation, ParseError> {
         };
     }
 
-    Ok(Invocation::Run(args.to_vec()))
+    run_from(args)
+}
+
+/// Build a run out of a command line, peeling off any leading `NAME=VALUE`
+/// assignments the way a shell would.
+///
+/// `ck FOO=1 cargo test` has to work, because prefixing a command with a
+/// variable is ordinary shell writing and an agent produces it without
+/// thinking. Without this the assignment is treated as the program name and
+/// the run dies with "command not found".
+fn run_from(args: &[String]) -> Result<Invocation, ParseError> {
+    let mut env = Vec::new();
+    let mut rest = args;
+    while let Some((name, value)) = rest.first().and_then(|a| split_assignment(a)) {
+        env.push((name, value));
+        rest = &rest[1..];
+    }
+    if rest.is_empty() {
+        return Err(ParseError::AssignmentsWithoutCommand);
+    }
+    Ok(Invocation::Run {
+        env,
+        argv: rest.to_vec(),
+    })
+}
+
+/// Split `NAME=VALUE` when `NAME` is a shell-legal variable name. The value
+/// keeps everything after the first `=`, so `FOO=a=b` sets FOO to `a=b`.
+fn split_assignment(arg: &str) -> Option<(String, String)> {
+    let (name, value) = arg.split_once('=')?;
+    let mut chars = name.chars();
+    let first = chars.next()?;
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return None;
+    }
+    if !chars.all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+    Some((name.to_string(), value.to_string()))
 }
 
 #[cfg(test)]
@@ -110,7 +167,20 @@ mod tests {
         args.iter().map(|s| s.to_string()).collect()
     }
     fn run(args: &[&str]) -> Invocation {
-        Invocation::Run(v(args))
+        Invocation::Run {
+            env: Vec::new(),
+            argv: v(args),
+        }
+    }
+
+    fn run_with(env: &[(&str, &str)], args: &[&str]) -> Invocation {
+        Invocation::Run {
+            env: env
+                .iter()
+                .map(|(k, val)| ((*k).to_string(), (*val).to_string()))
+                .collect(),
+            argv: v(args),
+        }
     }
 
     #[test]
@@ -192,6 +262,75 @@ mod tests {
     #[test]
     fn bare_invocation_reports_rather_than_errors() {
         assert_eq!(parse(&[]).unwrap(), Invocation::Help);
+    }
+
+    #[test]
+    fn a_leading_assignment_becomes_environment_not_a_program_name() {
+        assert_eq!(
+            parse(&v(&["FOO=1", "cargo", "test"])).unwrap(),
+            run_with(&[("FOO", "1")], &["cargo", "test"])
+        );
+    }
+
+    #[test]
+    fn several_assignments_are_all_peeled_off() {
+        assert_eq!(
+            parse(&v(&["A=1", "B=2", "make"])).unwrap(),
+            run_with(&[("A", "1"), ("B", "2")], &["make"])
+        );
+    }
+
+    #[test]
+    fn a_value_may_contain_equals_signs() {
+        assert_eq!(
+            parse(&v(&["RUSTFLAGS=--cfg=x", "cargo", "build"])).unwrap(),
+            run_with(&[("RUSTFLAGS", "--cfg=x")], &["cargo", "build"])
+        );
+    }
+
+    #[test]
+    fn an_empty_value_is_still_an_assignment() {
+        assert_eq!(
+            parse(&v(&["FOO=", "env"])).unwrap(),
+            run_with(&[("FOO", "")], &["env"])
+        );
+    }
+
+    #[test]
+    fn assignments_stop_at_the_first_real_token() {
+        // The second looks like an assignment but belongs to the command.
+        assert_eq!(
+            parse(&v(&["A=1", "env", "B=2"])).unwrap(),
+            run_with(&[("A", "1")], &["env", "B=2"])
+        );
+    }
+
+    #[test]
+    fn a_token_that_only_looks_like_an_assignment_is_a_program() {
+        // Not shell-legal variable names, so they name programs instead.
+        for arg in ["./x=y", "1BAD=2", "=noname", "a-b=c"] {
+            assert_eq!(parse(&v(&[arg, "z"])).unwrap(), run(&[arg, "z"]), "{arg}");
+        }
+    }
+
+    #[test]
+    fn assignments_with_nothing_to_run_are_refused() {
+        assert_eq!(
+            parse(&v(&["FOO=1"])),
+            Err(ParseError::AssignmentsWithoutCommand)
+        );
+        assert_eq!(
+            parse(&v(&["A=1", "B=2"])),
+            Err(ParseError::AssignmentsWithoutCommand)
+        );
+    }
+
+    #[test]
+    fn the_separator_stops_assignment_parsing_too() {
+        assert_eq!(
+            parse(&v(&["--", "FOO=1", "x"])).unwrap(),
+            run(&["FOO=1", "x"])
+        );
     }
 
     #[test]
