@@ -70,7 +70,7 @@ gain nothing and lose nothing. Output the caller wants in full — a query resul
 a build log being read for its own sake — is the one case where `ck` is genuinely worse,
 and shadow mode is the answer, since it prints the verdict and the raw output together.
 Commands whose failure identity is unstable produce churn, which is loud and visible
-rather than silent, and the residual matcher is the v2 answer to that.
+rather than silent, and residual matching, deferred past 0.1.0, is the answer to it.
 
 Claiming value everywhere would be the fatal version of this. The first `ck ls` would
 expose it, and the bypass habit starts the same day.
@@ -93,7 +93,7 @@ Two ways failure identity can break:
 
 Loud failures are recoverable. Silent ones destroy the property that makes the tool worth
 having. **Identity errs toward over-discriminating.** Churn is handled by a separate
-mechanism (the residual matcher, v2), never by loosening the key.
+mechanism (the residual matcher, deferred), never by loosening the key.
 
 ### 2. First contact must never be worse than the raw command
 
@@ -118,9 +118,9 @@ exited `1`, that disagreement is itself the finding: report it, exit non-zero. I
 uncertainty always resolves toward reporting NEW. A false NEW costs the caller one read; a
 false clean costs them a broken build they do not discover until much later.
 
-The raw dump is the common path in v1, so it cannot be unbounded. A failing `cargo build`
+The raw dump is the common path in 0.1.0, so it cannot be unbounded. A failing `cargo build`
 with two hundred diagnostics would deliver, through the tool, the same context flood the
-tool exists to prevent. v1 needs a crude head-and-tail cap with an explicit truncation
+tool exists to prevent. 0.1.0 needs a crude head-and-tail cap with an explicit truncation
 marker and a stated way to retrieve the rest. This is the one place the external
 output-budgeting convention cannot be waited for; write the interim cap so the shared
 convention can replace it later without changing the contract.
@@ -190,10 +190,10 @@ command named `show`. Keep the reserved set at exactly one; every addition widen
 dent.
 
 Flags belonging to `ck` itself sit before the command (`ck --verify cargo test`) and are
-consumed by the first-non-flag-token rule. There is exactly one in v1, and it is off the
+consumed by the first-non-flag-token rule. There is exactly one in 0.1.0, and it is off the
 hot path.
 
-`mark <name>` for explicitly pinned baselines is **deferred to v2**. The primary caller's
+`mark <name>` for explicitly pinned baselines is **deferred past 0.1.0**. The primary caller's
 baseline is always the last run; named pins are a human affordance, and there is no
 evidence an agent would reach for one. If it lands, it takes a flag rather than a second
 reserved word.
@@ -286,15 +286,16 @@ Four things the table does not say on its own:
 Identity is computed **at ingest and stored**, never derived at comparison time. The
 baseline run's enclosing symbols cannot be recovered from a tree that has since changed.
 
-The identity algorithm version is written into the baseline file. A version mismatch
+The identity **schema** version — a number for the algorithm, unrelated to the tool's
+release version — is written into the baseline file. A mismatch
 degrades **loudly** to "no baseline" — never a silent comparison across schemes.
 
 Three tiers, with genuinely different reliability:
 
 | Tier | Key | Notes |
 |---|---|---|
-| `node` | Runner's own node ID | Canonical, free, trustworthy. The v1 test adapter uses this. |
-| `constructed` | file + rule code + enclosing symbol | v1 ships a **crude** form for diagnostics: file, rule code, and a discriminator lifted from the message (the variable name, say). Enclosing-symbol lookup needs tree-sitter and is v2. Line number is payload, never identity. Without the discriminator, three `unused_variable` hits in one function collide. |
+| `node` | Runner's own node ID | Canonical, free, trustworthy. The 0.1.0 test adapter uses this. |
+| `constructed` | file + rule code + enclosing symbol | 0.1.0 ships a **crude** form for diagnostics: file, rule code, and a discriminator lifted from the message (the variable name, say). Enclosing-symbol lookup needs tree-sitter and is deferred. Line number is payload, never identity. Without the discriminator, three `unused_variable` hits in one function collide. |
 | `hash` | Normalized message, numbers and paths templated out | Last resort. Both collision-prone and churn-prone — a compiler version bump rewrites wording and everything looks new. |
 
 Known weak spot in the `node` tier: auto-numbered parameterization (`test_foo[0]`, `[1]`,
@@ -304,7 +305,7 @@ not assumed stable.
 
 ANSI escapes are stripped before any hashing.
 
-### Residual matching (v2)
+### Residual matching (deferred)
 
 Identity comparison is a two-pass match, not a single hash equality:
 
@@ -322,7 +323,7 @@ principle 1.
 
 ## Flakes
 
-**In v1.** Not deferred — the gate is the product, and one flaky test reporting NEW on
+**In 0.1.0.** Not deferred — the gate is the product, and one flaky test reporting NEW on
 alternating runs teaches the caller that the gate lies.
 
 Keep the last N run outcomes per identity. Any identity that has flipped state without an
@@ -337,7 +338,7 @@ observing that something is unstable and refusing to let it drive the exit code.
 ## Baseline storage
 
 ```
-~/.cache/<tool>/<repo-identity>/<branch>/<command-hash>.toml
+~/.cache/ck/<repo-identity>/<branch>/<command-hash>.toml
 ```
 
 - Out of tree — no gitignore conversation, no accidental commits.
@@ -410,7 +411,7 @@ structured path, where it is noise.
   that never ran would report them as fixed on the next comparison — principle 1 again.
 
 This machinery is also what a future `--timeout` needs, so a hung suite has an obvious
-answer even though it is out of v1 scope.
+answer even though it is out of 0.1.0 scope.
 
 ### Small things a wrapper gets wrong
 
@@ -443,7 +444,7 @@ No dynamic loading, no scripting.
 ### "Usable" is doing work in that rule
 
 A machine-readable mode that the user's toolchain refuses to run is not one. **libtest is
-the case that proves it, and it is the v1 test adapter.**
+the case that proves it, and it is the 0.1.0 test adapter.**
 
 Rust's default test harness advertises `--format pretty|terse|json|junit` in its own
 `--help`, but `json` and `junit` are gated behind `-Z unstable-options`, which stable
@@ -453,7 +454,7 @@ because the Rust team intends to replace libtest wholesale and will not stabiliz
 interface they plan to change. `cargo test --message-format=json` is the **cargo** layer
 and carries compiler artifacts and build messages, nothing about individual test outcomes.
 
-So the v1 test adapter parses libtest's human output. Three properties make that
+So the 0.1.0 test adapter parses libtest's human output. Three properties make that
 acceptable rather than a retreat:
 
 1. **The format is fixed by the toolchain, not the project.** Every Rust crate produces
@@ -479,7 +480,7 @@ principle 2. Support it when present; never need it.
 ### The normalized record
 
 **Both tiers emit the same record, and the record carries its identity tier.** Get this
-type right in v1 even with two adapters behind it. It is the thing that is expensive to
+type right in 0.1.0 even with two adapters behind it. It is the thing that is expensive to
 retrofit.
 
 ```rust
@@ -530,12 +531,13 @@ Rules that come with it:
 1. Subprocess wrapping with faithful stdout/stderr/exit-code preservation and TTY
    detection is a place where the strictness pays. Getting it subtly wrong is how a
    wrapper silently swallows output — the failure that kills adoption.
-2. tree-sitter is a first-class Rust citizen, and constructed identity is the obvious v2.
+2. tree-sitter is a first-class Rust citizen, and full constructed identity is the obvious
+   next step.
    Go makes that a CGO conversation.
 3. Single static binary distributed inside an agent skill or plugin; Rust's output there is
    genuinely dependency-free.
 
-Counterweight, stated honestly: Go builds faster and v1 would ship sooner. But the shared
+Counterweight, stated honestly: Go builds faster and 0.1.0 would ship sooner. But the shared
 cargo target dir means build-time cost is already a known accepted quantity, and none of
 the usual Go pull — Graph libraries, business deadline — applies here.
 
@@ -543,7 +545,12 @@ the usual Go pull — Graph libraries, business deadline — applies here.
 
 ## Scope
 
-### v1
+Scope labels here are release numbers, not major versions. **0.1.0 is what gets built
+now.** The deferred set is not pinned to a number, because which release absorbs it is not
+known and a guess would rot on its own — see rule 4 of the fleet doc standard. "Deferred"
+means "not in 0.1.0," nothing more.
+
+### 0.1.0
 
 - Transparent command wrapper: any command, stdout/stderr/exit code preserved, nothing
   added. **Build this first and alone.** It is shippable on its own and already
@@ -573,10 +580,10 @@ the usual Go pull — Graph libraries, business deadline — applies here.
 - The normalized record type with its identity tier and confidence fields.
 - Shadow mode (`--verify`), shipped with the first adapter rather than after it.
 
-### v2
+### Deferred
 
 - Residual matcher / `CHANGED`
-- tree-sitter for enclosing-symbol lookup, upgrading the crude v1 diagnostic key
+- tree-sitter for enclosing-symbol lookup, upgrading the crude 0.1.0 diagnostic key
 - TOML regex profiles
 - Additional structured adapters, `cargo nextest` among them — stable machine-readable
   output, supported when present, never required
@@ -598,11 +605,12 @@ Public, open source, under `excelano`. The binary must be independently installa
 useful; the skill is one channel among several, never a requirement for the tool to work.
 
 **Nothing hard-coded for the author's setup.** This has teeth, and they are worth naming
-because the v1 adapters are both Rust and the temptation runs one direction. Cache paths
+because the 0.1.0 adapters are both Rust and the temptation runs one direction. Cache paths
 resolve through `$XDG_CACHE_HOME` with the conventional fallback, never a literal
 `~/.cache`. Repo identity derives from the git remote or the toplevel path, with no
 known-repo list anywhere. Adapter selection matches the invoked command generically, and
-the v2 TOML profiles are the extension point so a user adds Go or Python coverage without
+the deferred TOML profiles are the extension point so a user adds Go or Python coverage
+without
 touching our source. No assumption that a Rust toolchain exists at all.
 
 The tool will not be discovered on its own. There is no ambient mechanism by which a CLI
@@ -635,10 +643,10 @@ and does not get burned.
 
 ## Validation gate
 
-Before building anything beyond v1: **run it against real repos for a week and check
+Before building anything beyond 0.1.0: **run it against real repos for a week and check
 whether the delta is actually trustworthy.**
 
-Trust cannot be assessed by feel, so v1 needs the instrument that measures it. Ship a
+Trust cannot be assessed by feel, so 0.1.0 needs the instrument that measures it. Ship a
 shadow mode — `--verify`, or an environment variable, since it is not on the hot path —
 that computes and prints the verdict *and* dumps the raw output underneath. Every run
 during the trial week then shows both, and any lie the tool tells is visible in the same
