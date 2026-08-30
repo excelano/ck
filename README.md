@@ -25,10 +25,14 @@ nothing." That is a smaller question, and it has a much smaller answer.
 
 `ck` is safe on anything and valuable on a specific shape of work.
 
-**Safe on anything.** Prefix any command with it. Unknown runner, no structured output, a
-plain shell script, a one-shot invocation: it passes through and preserves the exit code.
-There is nothing to assess before using it and no case where the wrapped form is a worse
-bet than the bare one.
+**Safe on anything that runs a program.** Prefix it onto any command. Unknown runner, no
+structured output, a plain shell script, a one-shot invocation: it passes through and
+preserves the exit code. Variable assignments come along as they would in a shell, so
+`ck RUST_BACKTRACE=1 cargo test` does what you mean.
+
+The exception is shell builtins — `cd`, `export`, `source` — which have no executable
+behind them and so cannot be wrapped by anything. Run those without `ck`; it will tell you
+so rather than reporting a missing command.
 
 **Valuable in the red-to-green loop**, where three things hold together: the command runs
 repeatedly against a tree you are actively changing, it reports a set of discrete failures

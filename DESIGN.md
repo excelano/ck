@@ -50,11 +50,16 @@ view instead.
 
 Two halves, and blurring them is how principle 4 gets violated.
 
-**Unconditional to use.** The shipped instruction is *prefix every command you run*, and
-that survives contact only because `ck` costs nothing when it cannot help. Unknown
-command, no structured output, one-shot invocation, plain shell script: all pass through
-with the exit code intact. There is nothing for the caller to assess and no circumstance
-in which the wrapped form is a worse bet than the bare one.
+**Safe on anything that runs a program.** The shipped instruction is *prefix every
+command that runs a program*, and it survives contact because `ck` costs nothing when it
+cannot help. Unknown command, no structured output, one-shot invocation, plain shell
+script: all pass through with the exit code intact. There is nothing for the caller to
+assess about whether a runner is supported, and no circumstance in which the wrapped form
+is a worse bet than the bare one.
+
+The qualifier is not hedging. Shell builtins have no executable to run and are the one
+thing no wrapper can take — see principle 5, which records what that cost and how it is
+contained.
 
 **Conditional in value.** The tool pays in the red-to-green loop: an agent runs the same
 command repeatedly against a tree it is actively changing, and each iteration needs one
@@ -135,10 +140,28 @@ pressure and the bypass will become a habit. Agentic sessions are all pressure.
 
 ### 5. No eligibility judgment
 
-The tool accepts **any** command. Unknown runner, no structured output, plain shell
-script: passthrough with exit code preserved. This is what lets the shipped instruction
-be unconditional — *prefix every command you run* — with nothing for the caller to
-assess.
+The tool accepts any **program**. Unknown runner, no structured output, plain shell
+script: passthrough with exit code preserved. There is nothing for the caller to assess
+about whether a command is *supported*, which is the judgment that would otherwise get
+skipped under pressure.
+
+**The exception is real, and was found the hard way.** An earlier draft of this principle
+said the tool accepts "any command," and the shipped instruction was written
+unconditionally on the strength of that. Put into a live session it broke within minutes.
+A shell builtin — `cd`, `export`, `source`, `ulimit` — has no executable behind it, so no
+wrapper can run one, and `cd` could not work even in principle, because a child process
+cannot change its parent's directory. `ck cd ~/project && ck cargo test` failed at the
+`cd`, and everything after it ran in the wrong place.
+
+Two things follow. The instruction is *prefix every command that runs a program*, not
+*every command*. And ck makes the exception cheap rather than expensive: leading
+`NAME=VALUE` assignments are read the way a shell reads them, so `ck FOO=1 cargo test`
+works, and a builtin produces an error naming the problem instead of a misleading
+"command not found" that sends the caller hunting for a missing binary.
+
+The distinction still worth holding is the original one: no judgment about whether a
+*runner* is understood. That is the assessment this principle exists to remove, and it
+survives intact.
 
 Consequence, and it should shape the build order: **this is a command wrapper that
 happens to understand some runners well, not a test tool that happens to wrap commands.**
@@ -552,8 +575,9 @@ means "not in 0.1.0," nothing more.
 
 ### 0.1.0
 
-- Transparent command wrapper: any command, stdout/stderr/exit code preserved, nothing
-  added. **Build this first and alone.** It is shippable on its own and already
+- Transparent command wrapper: any program, stdout/stderr/exit code preserved, nothing
+  added, leading `NAME=VALUE` assignments honoured and shell builtins refused with an
+  error that says why. **Build this first and alone.** It is shippable on its own and already
   non-worse than typing the raw command, which makes the "prefix everything" instruction
   true on day one.
 - **Two** adapters, not one: `cargo test` (libtest text parse — see Adapters for why it
