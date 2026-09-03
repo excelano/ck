@@ -321,6 +321,14 @@ Three tiers, with genuinely different reliability:
 | `constructed` | file + rule code + enclosing symbol | 0.1.0 ships a **crude** form for diagnostics: file, rule code, and a discriminator lifted from the message (the variable name, say). Enclosing-symbol lookup needs tree-sitter and is deferred. Line number is payload, never identity. Without the discriminator, three `unused_variable` hits in one function collide. |
 | `hash` | Normalized message, numbers and paths templated out | Last resort. Both collision-prone and churn-prone — a compiler version bump rewrites wording and everything looks new. |
 
+Known weak spot in the `constructed` tier, and it shows up on the simplest scenario:
+one renamed function produces one identical `E0425` per call site, all in one file with
+the same discriminator. The crude key collides them into one identity, so fixing two of
+three reports as no change, and a fourth call site breaking the same way hides under the
+existing one — the silent direction principle 1 says is unrecoverable. The key must carry
+an occurrence count within its file until the enclosing symbol is available. A fixture
+for this case ships with the diagnostic adapter.
+
 Known weak spot in the `node` tier: auto-numbered parameterization (`test_foo[0]`, `[1]`,
 `[2]`). Inserting a case shifts every ID after it — the line-number problem in a different
 coordinate system. Index-like suffixes should be **detected and marked low-confidence**,
@@ -580,11 +588,12 @@ means "not in 0.1.0," nothing more.
   error that says why. **Build this first and alone.** It is shippable on its own and already
   non-worse than typing the raw command, which makes the "prefix everything" instruction
   true on day one.
-- **Two** adapters, not one: `cargo test` (libtest text parse — see Adapters for why it
-  is not JSON) and `rustc --error-format=json` with `cargo clippy --message-format=json`.
-  Rust first because it is what the author exercises daily and so gets the fastest
-  feedback, not because the tool is Rust-specific. Nothing about either adapter may leak
-  into the core.
+- **Two** adapters, not one, built in this order: `cargo --message-format=json`
+  diagnostics first (`build`, `check`, `clippy`, and the compile-fail path of `test`),
+  then `cargo test` (libtest text parse — see Adapters for why it is not JSON). Rust
+  first because it is what the author exercises daily and so gets the fastest feedback,
+  not because the tool is Rust-specific. Nothing about either adapter may leak into the
+  core.
 
   The original plan was `cargo test` alone. That is wrong for the actual caller. In a Rust
   fix-test-fix loop the majority of red iterations are compile failures rather than test
@@ -596,6 +605,18 @@ means "not in 0.1.0," nothing more.
   The diagnostic adapter ships with the crude constructed key rather than waiting for
   tree-sitter. Crude and over-discriminating is acceptable under principle 1. Absent is
   not.
+
+  Diagnostics are built first because the two adapters are stages of one stream, not
+  peers. With `--message-format=json`, `cargo test` writes the compiler messages as JSON
+  lines on stdout, then a `build-finished` line, then the libtest text untouched on the
+  same stream; on a broken build there are JSON messages, `build-finished` with success
+  false, and no test output at all (verified, cargo 1.95). So the cargo interception, the
+  flag injection, and the stream split are the diagnostic adapter's plumbing, and the
+  test parser slots in behind `build-finished` on the same reader. Building diagnostics
+  first also puts the constructed key, the identity tier whose churn rate is the go/no-go
+  in the validation gate, in front of the store while the store is still cheap to change.
+  The JSON carries a `rendered` field, so the raw dump under principle 3 is the
+  compiler's own text, byte for byte.
 - `node` tier identity for tests, the crude constructed key for diagnostics.
 - A fixture corpus of captured real runner output, built alongside the parsers.
 - Flake quarantine.
