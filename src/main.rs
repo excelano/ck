@@ -7,9 +7,6 @@
 //! top of this, never in place of it — a wrapper that understands some runners
 //! well, not a test tool that happens to wrap commands.
 
-// Matching is in place; the executor learns to capture a matched runner's
-// streams in the next step, and the allowance goes with it.
-#[allow(dead_code)]
 mod adapter;
 mod cli;
 mod exec;
@@ -79,7 +76,20 @@ fn main() -> std::process::ExitCode {
         // `verify` has nothing to show until a runner's output is parsed;
         // on a passthrough there is no verdict, and the raw output is what
         // passthrough already prints.
-        Ok(Invocation::Run { env, argv, .. }) => exec::run(&env, &argv),
+        Ok(Invocation::Run { env, argv, .. }) => match adapter::detect(&argv) {
+            None => exec::run(&env, &argv),
+            Some(matched) => match exec::capture(&env, &matched.argv) {
+                Ok(captured) => {
+                    // Every run is first contact until there is a baseline
+                    // to compare against, and first contact prints what the
+                    // bare command would have. An interrupted run takes the
+                    // same path: whatever was captured, then 128 + signal.
+                    adapter::dump_raw(matched.adapter, &captured);
+                    exec::exit_code(&captured.status)
+                }
+                Err(code) => code,
+            },
+        },
         Err(e @ ParseError::UnknownFlag(_)) => usage_error(&e),
         Err(e) => usage_error(&e),
     };

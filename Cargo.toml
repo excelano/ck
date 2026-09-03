@@ -11,10 +11,13 @@ keywords = ["cli", "testing", "diff", "agent", "wrapper"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
-# The only dependency, and it is bindings rather than code: setpgid, kill,
-# tcsetpgrp and sigaction have no std equivalent. No C is compiled — libc
-# declares symbols the binary already links against.
+# Bindings rather than code: setpgid, kill, tcsetpgrp and sigaction have no
+# std equivalent. No C is compiled — libc declares symbols the binary already
+# links against.
 libc = "0.2"
+# Every structured adapter reads a runner's JSON mode. Hand-rolling a parser
+# for rustc's output would be the riskier dependency.
+serde_json = "1"
 
 [profile.dist]
 inherits = "release"

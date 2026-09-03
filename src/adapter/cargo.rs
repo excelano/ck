@@ -19,6 +19,10 @@
 //! passes through. Passthrough is never wrong. A false match — injecting the
 //! flag into a command line that was read incorrectly — is.
 
+use std::io::Write;
+
+use crate::exec::{Captured, Stream};
+
 /// The subcommands whose output is compiler diagnostics, with cargo's
 /// built-in single-letter aliases.
 const SUBCOMMANDS: &[&str] = &["build", "b", "check", "c", "clippy", "test", "t"];
@@ -98,6 +102,82 @@ pub fn detect(argv: &[String]) -> Option<Vec<String>> {
     let mut rewritten = argv.to_vec();
     rewritten.insert(i + 1, MESSAGE_FORMAT.to_string());
     Some(rewritten)
+}
+
+/// What one line of the child's stdout is, given where the stream is.
+enum Line {
+    /// A compiler diagnostic; the text is what cargo would have printed.
+    Diagnostic(String),
+    /// Cargo's own bookkeeping: artifacts, build scripts, `build-finished`.
+    Scaffolding,
+    /// Not cargo's. A test binary's output, or something unexpected.
+    Text,
+}
+
+/// Replay a captured run as cargo's human output. Diagnostics go to stderr,
+/// where cargo puts them; cargo's own stderr goes back out verbatim; and
+/// whatever followed `build-finished` on stdout — a test binary, usually —
+/// goes to stdout untouched. Ordering across the two streams is the order
+/// the chunks arrived, which is as close to cargo's own interleaving as a
+/// pipe allows.
+pub fn dump_raw(captured: &Captured) {
+    let mut out = std::io::stdout().lock();
+    let mut err = std::io::stderr().lock();
+    // A write failure here means the reader has gone away, and there is
+    // nobody left to tell.
+    let mut pending: Vec<u8> = Vec::new();
+    let mut building = true;
+    for chunk in &captured.chunks {
+        match chunk.stream {
+            Stream::Stderr => {
+                let _ = err.write_all(&chunk.bytes);
+            }
+            Stream::Stdout => {
+                pending.extend_from_slice(&chunk.bytes);
+                while let Some(end) = pending.iter().position(|&b| b == b'\n') {
+                    let line: Vec<u8> = pending.drain(..=end).collect();
+                    match classify(&line, &mut building) {
+                        Line::Diagnostic(text) => {
+                            let _ = err.write_all(text.as_bytes());
+                        }
+                        Line::Scaffolding => {}
+                        Line::Text => {
+                            let _ = out.write_all(&line);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let _ = out.write_all(&pending);
+    let _ = out.flush();
+    let _ = err.flush();
+}
+
+/// Decide what a stdout line is. `building` is true until `build-finished`
+/// has gone by; after that nothing on stdout is cargo's, however it looks.
+fn classify(line: &[u8], building: &mut bool) -> Line {
+    if !*building {
+        return Line::Text;
+    }
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(line) else {
+        return Line::Text;
+    };
+    match value.get("reason").and_then(|r| r.as_str()) {
+        Some("compiler-message") => {
+            match value.pointer("/message/rendered").and_then(|r| r.as_str()) {
+                Some(rendered) => Line::Diagnostic(rendered.to_string()),
+                // A message with no rendering is not something to guess at.
+                None => Line::Text,
+            }
+        }
+        Some("build-finished") => {
+            *building = false;
+            Line::Scaffolding
+        }
+        Some(_) => Line::Scaffolding,
+        None => Line::Text,
+    }
 }
 
 #[cfg(test)]
@@ -234,5 +314,72 @@ mod tests {
         passthrough(&["cargo", "+nightly"]);
         passthrough(&["cargo", "-q"]);
         passthrough(&["cargo", "--color"]);
+    }
+
+    fn classified(line: &str, building: &mut bool) -> &'static str {
+        match classify(line.as_bytes(), building) {
+            Line::Diagnostic(_) => "diagnostic",
+            Line::Scaffolding => "scaffolding",
+            Line::Text => "text",
+        }
+    }
+
+    #[test]
+    fn a_compiler_message_is_replayed_as_its_rendering() {
+        let mut building = true;
+        let line = r#"{"reason":"compiler-message","message":{"rendered":"error: x\n"}}"#;
+        match classify(line.as_bytes(), &mut building) {
+            Line::Diagnostic(text) => assert_eq!(text, "error: x\n"),
+            _ => panic!("should be a diagnostic"),
+        }
+    }
+
+    #[test]
+    fn cargos_bookkeeping_is_dropped() {
+        let mut building = true;
+        assert_eq!(
+            classified(
+                r#"{"reason":"compiler-artifact","target":{}}"#,
+                &mut building
+            ),
+            "scaffolding"
+        );
+        assert_eq!(
+            classified(r#"{"reason":"build-script-executed"}"#, &mut building),
+            "scaffolding"
+        );
+    }
+
+    #[test]
+    fn nothing_after_build_finished_is_cargos() {
+        let mut building = true;
+        assert_eq!(
+            classified(
+                r#"{"reason":"build-finished","success":true}"#,
+                &mut building
+            ),
+            "scaffolding"
+        );
+        assert!(!building);
+        assert_eq!(classified("running 3 tests", &mut building), "text");
+        // Even a line that looks like cargo's.
+        assert_eq!(
+            classified(r#"{"reason":"compiler-artifact"}"#, &mut building),
+            "text"
+        );
+    }
+
+    #[test]
+    fn lines_that_are_not_cargos_are_text() {
+        let mut building = true;
+        assert_eq!(classified("plain output", &mut building), "text");
+        assert_eq!(classified(r#"{"not":"cargo"}"#, &mut building), "text");
+        assert_eq!(
+            classified(
+                r#"{"reason":"compiler-message","message":{}}"#,
+                &mut building
+            ),
+            "text"
+        );
     }
 }

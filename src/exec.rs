@@ -6,6 +6,13 @@
 //! the adapter path needs interception, and it pays for that separately;
 //! there is no reason to make every unrecognised command pay it too.
 //!
+//! Captured mode is the same spawn with pipes on stdout and stderr, each
+//! drained by its own thread so that neither can fill and stall the child.
+//! Chunks are kept in arrival order across both streams rather than as two
+//! separate buffers, because the order is most of what makes a build log
+//! readable when it is replayed. No PTY: a PTY would merge the two streams,
+//! and the split is worth more than the child's colour.
+//!
 //! The child runs in its own process group so that an interrupt can reach the
 //! whole tree — test runners spawn children of their own, and the failure being
 //! avoided is an orphan holding a port after a cancelled run. That choice costs
@@ -21,15 +28,48 @@
 //! SIGINT leaves the background job, SIGTERM takes it. Matching the raw command
 //! is the promise; do not "fix" this by escalating SIGINT to SIGTERM.
 
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
-use std::process::Command;
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::time::Duration;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 /// How long a signalled process group has to exit on its own before it is
 /// killed outright.
 const GRACE: Duration = Duration::from_secs(5);
+
+/// How long, after the child has exited, to keep reading its pipes. The
+/// pipes stay open while anything the child started still holds them, and a
+/// daemon left behind by a test would otherwise hold `ck` open with it. The
+/// bare command returns in that situation; so must this.
+const LINGER: Duration = Duration::from_millis(500);
+
+/// Which of the child's two output streams a chunk came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stream {
+    Stdout,
+    Stderr,
+}
+
+/// One read from one of the child's pipes.
+#[derive(Debug)]
+pub struct Chunk {
+    pub stream: Stream,
+    pub bytes: Vec<u8>,
+}
+
+/// Everything a captured run produced, in the order it arrived.
+#[derive(Debug)]
+pub struct Captured {
+    pub chunks: Vec<Chunk>,
+    pub status: ExitStatus,
+}
+
+enum Event {
+    Chunk(Chunk),
+    Closed,
+}
 
 /// The wrapped child's process group, for the signal handler to reach. Zero
 /// until the child is spawned.
@@ -53,9 +93,39 @@ extern "C" fn nudge(sig: libc::c_int) {
     }
 }
 
-/// Run `argv` with `env` added to its environment, and return the exit code
-/// `ck` itself should exit with.
+/// Run `argv` with `env` added to its environment, streams inherited, and
+/// return the exit code `ck` itself should exit with.
 pub fn run(env: &[(String, String)], argv: &[String]) -> i32 {
+    match launch(env, argv, false) {
+        Ok(captured) => exit_code(&captured.status),
+        Err(code) => code,
+    }
+}
+
+/// Run `argv` with its output captured. `Err` carries an exit code for a
+/// command that never started or could not be waited for; the caller has
+/// already been told why.
+pub fn capture(env: &[(String, String)], argv: &[String]) -> Result<Captured, i32> {
+    launch(env, argv, true)
+}
+
+/// The exit code `ck` reports for a finished child.
+pub fn exit_code(status: &ExitStatus) -> i32 {
+    if let Some(code) = status.code() {
+        code
+    } else if let Some(sig) = status.signal() {
+        // The shell convention, and the only honest answer: the run produced
+        // no verdict because it did not finish.
+        128 + sig
+    } else {
+        // Neither an exit code nor a signal is not a documented possibility;
+        // refusing to invent a verdict is the whole point.
+        eprintln!("ck: the command ended in a way ck could not interpret");
+        2
+    }
+}
+
+fn launch(env: &[(String, String)], argv: &[String], capture: bool) -> Result<Captured, i32> {
     let mut cmd = Command::new(&argv[0]);
     cmd.args(&argv[1..]);
     for (name, value) in env {
@@ -63,6 +133,9 @@ pub fn run(env: &[(String, String)], argv: &[String]) -> i32 {
     }
     // 0 means "your own pid": the child becomes its own group leader.
     cmd.process_group(0);
+    if capture {
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    }
 
     // Handlers go in before the child exists, not after it. Between spawn
     // returning and a handler being installed, the default disposition applies:
@@ -76,7 +149,7 @@ pub fn run(env: &[(String, String)], argv: &[String]) -> i32 {
 
     let mut child = match cmd.spawn() {
         Ok(c) => c,
-        Err(e) => return spawn_failure(&argv[0], &e),
+        Err(e) => return Err(spawn_failure(&argv[0], &e)),
     };
 
     let pgid = child.id() as i32;
@@ -97,30 +170,65 @@ pub fn run(env: &[(String, String)], argv: &[String]) -> i32 {
         std::thread::spawn(move || supervise(read_fd));
     }
 
+    // The readers start before the wait, or a child that fills a pipe blocks
+    // forever with nobody on the other end.
+    let (events, readers) = mpsc::channel();
+    let mut open = 0;
+    if let Some(out) = child.stdout.take() {
+        drain(Stream::Stdout, out, events.clone());
+        open += 1;
+    }
+    if let Some(err) = child.stderr.take() {
+        drain(Stream::Stderr, err, events.clone());
+        open += 1;
+    }
+    drop(events);
+
     let status = child.wait();
     REAPED.store(true, Ordering::SeqCst);
     terminal.take_back();
 
-    match status {
-        Ok(s) => {
-            if let Some(code) = s.code() {
-                code
-            } else if let Some(sig) = s.signal() {
-                // The shell convention, and the only honest answer: the run
-                // produced no verdict because it did not finish.
-                128 + sig
-            } else {
-                // Neither an exit code nor a signal is not a documented
-                // possibility; refusing to invent a verdict is the whole point.
-                eprintln!("ck: the command ended in a way ck could not interpret");
-                2
-            }
-        }
-        Err(e) => {
-            eprintln!("ck: could not wait for the command: {e}");
-            2
+    let mut chunks = Vec::new();
+    let deadline = Instant::now() + LINGER;
+    while open > 0 {
+        let wait = deadline.saturating_duration_since(Instant::now());
+        match readers.recv_timeout(wait) {
+            Ok(Event::Chunk(chunk)) => chunks.push(chunk),
+            Ok(Event::Closed) => open -= 1,
+            Err(_) => break,
         }
     }
+
+    match status {
+        Ok(status) => Ok(Captured { chunks, status }),
+        Err(e) => {
+            eprintln!("ck: could not wait for the command: {e}");
+            Err(2)
+        }
+    }
+}
+
+/// Read one of the child's pipes to the end on its own thread, handing every
+/// chunk to the channel as it arrives.
+fn drain(stream: Stream, mut source: impl Read + Send + 'static, events: mpsc::Sender<Event>) {
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        loop {
+            match source.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    let chunk = Chunk {
+                        stream,
+                        bytes: buf[..n].to_vec(),
+                    };
+                    if events.send(Event::Chunk(chunk)).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+        let _ = events.send(Event::Closed);
+    });
 }
 
 /// Words a shell runs itself. There is no executable behind them, so no

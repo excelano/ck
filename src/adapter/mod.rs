@@ -10,6 +10,8 @@
 
 pub mod cargo;
 
+use crate::exec::Captured;
+
 /// Which runner matched.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum AdapterId {
@@ -30,4 +32,14 @@ pub fn detect(argv: &[String]) -> Option<Match> {
         adapter: AdapterId::Cargo,
         argv,
     })
+}
+
+/// Print a captured run the way the runner itself would have, without
+/// interpretation. This is the first-contact path and the raw dump behind
+/// every parse that cannot be trusted: nothing is summarised, nothing is
+/// dropped except the runner's own machine-readable scaffolding.
+pub fn dump_raw(adapter: AdapterId, captured: &Captured) {
+    match adapter {
+        AdapterId::Cargo => cargo::dump_raw(captured),
+    }
 }
