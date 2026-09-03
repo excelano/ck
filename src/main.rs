@@ -7,6 +7,10 @@
 //! top of this, never in place of it — a wrapper that understands some runners
 //! well, not a test tool that happens to wrap commands.
 
+// Matching is in place; the executor learns to capture a matched runner's
+// streams in the next step, and the allowance goes with it.
+#[allow(dead_code)]
+mod adapter;
 mod cli;
 mod exec;
 
@@ -40,6 +44,8 @@ USAGE
         ck -- show something
 
 OPTIONS
+    --verify         Shadow mode: print the verdict and the raw output
+                     together, so the two can be checked against each other
     -h, --help       Print this message
     -V, --version    Print the version
 
@@ -70,7 +76,10 @@ fn main() -> std::process::ExitCode {
             eprintln!("ck: show needs a baseline store, which this build does not have");
             2
         }
-        Ok(Invocation::Run { env, argv }) => exec::run(&env, &argv),
+        // `verify` has nothing to show until a runner's output is parsed;
+        // on a passthrough there is no verdict, and the raw output is what
+        // passthrough already prints.
+        Ok(Invocation::Run { env, argv, .. }) => exec::run(&env, &argv),
         Err(e @ ParseError::UnknownFlag(_)) => usage_error(&e),
         Err(e) => usage_error(&e),
     };

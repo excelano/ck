@@ -18,6 +18,9 @@ pub enum Invocation {
     Run {
         env: Vec<(String, String)>,
         argv: Vec<String>,
+        /// Shadow mode: print the verdict and the raw output together, so a
+        /// parse that lies is visible in the same screenful.
+        verify: bool,
     },
 }
 
@@ -34,6 +37,8 @@ pub enum ParseError {
     /// `ck FOO=1` with nothing to run. A shell would set the variable in
     /// itself; a wrapper has no such thing to set.
     AssignmentsWithoutCommand,
+    /// A flag that modifies a run, with no run to modify.
+    FlagWithoutCommand(String),
 }
 
 impl std::fmt::Display for ParseError {
@@ -68,57 +73,79 @@ impl std::fmt::Display for ParseError {
                  ck can add variables to a command's environment, but it cannot set\n\
                  them in your shell the way a bare assignment does. Run that without ck."
             ),
+            Self::FlagWithoutCommand(flag) => write!(
+                f,
+                "{flag} needs a command to run\n\
+                 \n    ck {flag} <command> [args...]"
+            ),
         }
     }
 }
 
 /// Parse `ck`'s own arguments, excluding argv[0].
 ///
-/// Every branch here is terminal, because every option `ck` currently defines
-/// either answers immediately or hands the rest of the line to the command.
-/// The first option that does neither turns this into a loop over the leading
-/// flags; nothing else about the grammar changes.
+/// Flags that belong to `ck` sit before the command and are consumed here.
+/// Most of them answer immediately; `--verify` modifies the run and so the
+/// loop continues past it to whatever follows.
 pub fn parse(args: &[String]) -> Result<Invocation, ParseError> {
-    let Some(first) = args.first().map(String::as_str) else {
-        // Bare `ck`. Reports what it can rather than erroring; once a baseline
-        // store exists this should report the baseline for the current repo
-        // and branch instead of the help text.
-        return Ok(Invocation::Help);
-    };
+    let mut verify = false;
+    let mut rest = args;
 
-    // Everything after `--` is the command, untouched. Untouched includes not
-    // reading leading assignments: `--` means stop interpreting, so
-    // `ck -- FOO=1 x` looks for a program actually named `FOO=1`.
-    if first == "--" {
-        let rest = &args[1..];
-        return if rest.is_empty() {
-            Err(ParseError::EmptyAfterSeparator)
-        } else {
-            Ok(Invocation::Run {
-                env: Vec::new(),
-                argv: rest.to_vec(),
-            })
+    loop {
+        let Some(first) = rest.first().map(String::as_str) else {
+            // Bare `ck` reports what it can rather than erroring; once a
+            // baseline store exists this should report the baseline for the
+            // current repo and branch instead of the help text. A flag with
+            // nothing after it is a different thing, and an error.
+            return if verify {
+                Err(ParseError::FlagWithoutCommand("--verify".into()))
+            } else {
+                Ok(Invocation::Help)
+            };
         };
-    }
 
-    // A lone "-" is a conventional filename, not a flag.
-    if first.starts_with('-') && first != "-" {
-        return match first {
-            "-h" | "--help" => Ok(Invocation::Help),
-            "-V" | "--version" => Ok(Invocation::Version),
-            other => Err(ParseError::UnknownFlag(other.to_string())),
-        };
+        // Everything after `--` is the command, untouched. Untouched includes
+        // not reading leading assignments: `--` means stop interpreting, so
+        // `ck -- FOO=1 x` looks for a program actually named `FOO=1`.
+        if first == "--" {
+            let argv = &rest[1..];
+            return if argv.is_empty() {
+                Err(ParseError::EmptyAfterSeparator)
+            } else {
+                Ok(Invocation::Run {
+                    env: Vec::new(),
+                    argv: argv.to_vec(),
+                    verify,
+                })
+            };
+        }
+
+        // A lone "-" is a conventional filename, not a flag.
+        if first.starts_with('-') && first != "-" {
+            match first {
+                "-h" | "--help" => return Ok(Invocation::Help),
+                "-V" | "--version" => return Ok(Invocation::Version),
+                "--verify" => {
+                    verify = true;
+                    rest = &rest[1..];
+                    continue;
+                }
+                other => return Err(ParseError::UnknownFlag(other.to_string())),
+            }
+        }
+
+        break;
     }
 
     // First non-flag token. Either the one reserved word, or the command.
-    if first == "show" {
-        return match args.get(1) {
+    if rest[0] == "show" {
+        return match rest.get(1) {
             Some(id) => Ok(Invocation::Show(id.clone())),
             None => Err(ParseError::ShowNeedsIdentity),
         };
     }
 
-    run_from(args)
+    run_from(rest, verify)
 }
 
 /// Build a run out of a command line, peeling off any leading `NAME=VALUE`
@@ -128,7 +155,7 @@ pub fn parse(args: &[String]) -> Result<Invocation, ParseError> {
 /// variable is ordinary shell writing and an agent produces it without
 /// thinking. Without this the assignment is treated as the program name and
 /// the run dies with "command not found".
-fn run_from(args: &[String]) -> Result<Invocation, ParseError> {
+fn run_from(args: &[String], verify: bool) -> Result<Invocation, ParseError> {
     let mut env = Vec::new();
     let mut rest = args;
     while let Some((name, value)) = rest.first().and_then(|a| split_assignment(a)) {
@@ -141,6 +168,7 @@ fn run_from(args: &[String]) -> Result<Invocation, ParseError> {
     Ok(Invocation::Run {
         env,
         argv: rest.to_vec(),
+        verify,
     })
 }
 
@@ -170,6 +198,7 @@ mod tests {
         Invocation::Run {
             env: Vec::new(),
             argv: v(args),
+            verify: false,
         }
     }
 
@@ -180,6 +209,15 @@ mod tests {
                 .map(|(k, val)| ((*k).to_string(), (*val).to_string()))
                 .collect(),
             argv: v(args),
+            verify: false,
+        }
+    }
+
+    fn verified(args: &[&str]) -> Invocation {
+        Invocation::Run {
+            env: Vec::new(),
+            argv: v(args),
+            verify: true,
         }
     }
 
@@ -336,5 +374,53 @@ mod tests {
     #[test]
     fn separator_with_nothing_after_it_is_an_error() {
         assert_eq!(parse(&v(&["--"])), Err(ParseError::EmptyAfterSeparator));
+    }
+
+    #[test]
+    fn verify_sits_before_the_command_and_is_consumed() {
+        assert_eq!(
+            parse(&v(&["--verify", "cargo", "test"])).unwrap(),
+            verified(&["cargo", "test"])
+        );
+    }
+
+    #[test]
+    fn verify_composes_with_the_separator_and_assignments() {
+        assert_eq!(
+            parse(&v(&["--verify", "--", "-x", "foo"])).unwrap(),
+            verified(&["-x", "foo"])
+        );
+        assert_eq!(
+            parse(&v(&["--verify", "FOO=1", "cargo", "test"])).unwrap(),
+            Invocation::Run {
+                env: vec![("FOO".into(), "1".into())],
+                argv: v(&["cargo", "test"]),
+                verify: true,
+            }
+        );
+    }
+
+    #[test]
+    fn verify_after_the_command_belongs_to_the_command() {
+        assert_eq!(
+            parse(&v(&["cargo", "test", "--verify"])).unwrap(),
+            run(&["cargo", "test", "--verify"])
+        );
+    }
+
+    #[test]
+    fn verify_with_nothing_to_run_is_an_error() {
+        assert_eq!(
+            parse(&v(&["--verify"])),
+            Err(ParseError::FlagWithoutCommand("--verify".into()))
+        );
+    }
+
+    #[test]
+    fn help_still_wins_after_verify() {
+        assert_eq!(
+            parse(&v(&["--verify", "--help"])).unwrap(),
+            Invocation::Help
+        );
     }
 }
