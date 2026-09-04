@@ -9,14 +9,11 @@
 
 mod adapter;
 mod cli;
-// Built and tested ahead of the run path that calls it; the allowance goes
-// with the next step.
-#[allow(dead_code)]
 mod compare;
 mod exec;
 mod render;
 mod report;
-#[allow(dead_code)]
+mod run;
 mod store;
 
 use cli::{Invocation, ParseError};
@@ -49,8 +46,9 @@ USAGE
         ck -- show something
 
 OPTIONS
-    --verify         Shadow mode: print the verdict and the raw output
-                     together, so the two can be checked against each other
+    --verify         Shadow mode: the normal output, then what was parsed,
+                     then the raw output, so the three can be checked
+                     against each other
     -h, --help       Print this message
     -V, --version    Print the version
 
@@ -86,18 +84,7 @@ fn main() -> std::process::ExitCode {
         Ok(Invocation::Run { env, argv, verify }) => match adapter::detect(&argv) {
             None => exec::run(&env, &argv),
             Some(matched) => match exec::capture(&env, &matched.argv) {
-                Ok(captured) if verify => {
-                    let report = adapter::parse(matched.adapter, captured);
-                    render::verify(&report)
-                }
-                Ok(captured) => {
-                    // Every run is first contact until there is a baseline
-                    // to compare against, and first contact prints what the
-                    // bare command would have. An interrupted run takes the
-                    // same path: whatever was captured, then 128 + signal.
-                    adapter::dump_raw(matched.adapter, &captured);
-                    exec::exit_code(&captured.status)
-                }
+                Ok(captured) => run::finish(matched.adapter, captured, &env, &argv, verify),
                 Err(code) => code,
             },
         },

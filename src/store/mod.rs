@@ -225,11 +225,13 @@ impl Slot {
         }
     }
 
+    #[cfg(test)]
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
     }
 
     /// Whether `save` would do anything.
+    #[cfg(test)]
     pub fn writable(&self) -> bool {
         self.lock.is_some()
     }
