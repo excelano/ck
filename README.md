@@ -6,13 +6,18 @@ irreversible: every byte an agent reads stays in its context window and costs fo
 of the session.
 
 ```sh
-$ ck cargo test
-17 passed, 2 still failing, 0 new
+$ ck cargo check
+ck: 1 error, 0 warnings, nothing new
+
+STILL FAILING (1)
+  1e1c9b0a5e  error[E0425] src/lib.rs:13:21  cannot find function `frequencies` in this scope  (2 runs)
+
+  detail: ck show <id>
 ```
 
-One line. The caller confirmed it did not regress and spent almost no context finding out.
-When something *is* new, that failure gets full detail and the ones already known get a
-name and nothing more.
+A few lines. The caller confirmed it did not regress and spent almost no context finding
+out. When something *is* new, that failure gets the compiler's full text and the ones
+already known get a line and nothing more.
 
 ## Why not just run the command
 
@@ -47,27 +52,61 @@ want both.
 
 ## What it understands today
 
-`cargo build`, `check`, `clippy`, and `test` are run in cargo's JSON mode and read back
-as cargo's own output, so `ck cargo build` prints what `cargo build` prints. The one
-visible difference is the loss of color, since the streams are captured rather than
-inherited. Underneath, every compiler diagnostic has been given an identity.
+`cargo build`, `check`, and `clippy` are compared. Each is run in cargo's JSON mode,
+every diagnostic is given an identity, and the run is set against the previous run of
+the same command on the same branch. `cargo test` goes through the same path for its
+compile step, but the test output itself is not parsed yet, so a run that reaches the
+tests prints them in full. That parser is the next thing to land.
 
-`ck --verify <command>` shows that work: the parsed verdict, then the raw output under a
-separator, so the two can be checked against each other in one screenful.
+The first run of a command is a first run: it prints what the bare command would have,
+with one line added underneath saying a baseline was recorded. From the second run on,
+the output is the comparison.
 
 ```sh
-$ ck --verify cargo build
-ck --verify: 2 errors, 0 warnings, exit 101
-  error[E0425] src/stats.rs:17:43  cannot find function `frequencies` in this scope
-      id 206680554e  src/stats.rs|E0425|frequencies  [constructed]
-  error[E0425] src/stats.rs:41:17  cannot find function `frequencies` in this scope
-      id 14e127007f  src/stats.rs|E0425|frequencies#2  [constructed, low confidence]
----- raw output ----
+$ ck cargo check
+ck: 0 errors, 1 warning, 1 new, 1 fixed
+
+NEW (1)
+  warning: unused variable: `unused`
+    --> src/lib.rs:14:9
+     |
+  14 |     let unused = 0;
+     |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_unused`
+
+FIXED (1)
 ```
 
-Nothing is stored yet, so every run is a first run and prints in full. The comparison
-against the previous run, which is the one-line answer at the top of this page, is the
-next thing to land.
+`ck show <id>` prints the stored text for a failure that has stopped printing its own.
+Bare `ck` lists the baselines recorded for the current tree and branch. `ck --verify
+<command>` is shadow mode: the normal output, then what was parsed with every identity
+spelled out, then the raw output, so the three can be checked against each other.
+
+### The exit code
+
+`ck` exits `0` when nothing is new and `1` when a new error appeared on a run the
+command itself failed. A run with four persistent failures and nothing new exits `0`.
+That is the gate working as designed, and it makes `ck` wrong for CI or any script that
+reads zero as green: the summary line always carries the absolute count so a reader is
+never misled, but a script has no such protection. Use the bare command there.
+
+A new warning is reported and never changes the exit code, because the runner would not
+have failed on it either. When the command fails and ck finds no error in its output,
+ck prints the raw output, exits with the command's own code, and leaves the baseline
+alone: whatever failed is not in the report, and "nothing new" would be a lie. An
+interrupted run prints what was captured and exits `128` plus the signal, with no
+comparison and no baseline write.
+
+### Long output
+
+When ck's stdout is not a terminal and the raw output runs past 160 lines, the first 120
+and the last 40 are printed with a marker between them naming the file that holds all of
+it. A terminal gets everything.
+
+### Where the baselines live
+
+`$CK_CACHE_DIR` if set, else `$XDG_CACHE_HOME/ck`, else `~/.cache/ck`, one JSON file per
+command per branch per working tree. Deleting the directory is always safe; the next run
+is a first run. `SECURITY.md` says what the files contain.
 
 ## Design
 

@@ -106,9 +106,11 @@ No setup step, no init, no required baseline. `ck <anything>` on a cold cache pa
 command's output through essentially unchanged and sets the baseline implicitly. Cost is
 never front-loaded ahead of benefit.
 
-This also makes "no valid state" universally safe: unknown branch, detached HEAD, no git,
-schema mismatch, corrupt baseline — all degrade to first-contact behavior, which is
-already known-good.
+This also makes "no valid state" universally safe: a schema mismatch, a corrupt baseline,
+a cache directory that cannot be written — all degrade to first-contact behavior, which is
+already known-good. The states that are not errors get a key of their own instead: a
+detached HEAD is keyed on its commit and a directory with no git on its own path, so
+neither is condemned to first contact on every run.
 
 ### 3. Anything unparsed is dumped raw
 
@@ -369,23 +371,32 @@ observing that something is unstable and refusing to let it drive the exit code.
 ## Baseline storage
 
 ```
-~/.cache/ck/<repo-identity>/<branch>/<command-hash>.toml
+$CK_CACHE_DIR | $XDG_CACHE_HOME/ck | ~/.cache/ck
+  └── <tree-name>-<hash of tree path>/<branch>/<command>-<hash of command>.json
 ```
 
+JSON, since the record is nested and serde already reads cargo's stream; TOML was the
+earlier choice and is kept for the deferred profiles, where a human writes the file.
+
 - Out of tree — no gitignore conversation, no accidental commits.
+- **Keyed by the working tree's path**, not the remote. Two clones are two trees with two
+  states, and a shared baseline between them is a collision.
 - **Keyed by branch.** A cross-branch comparison is exactly the silent collision that
-  cannot be detected after the fact.
-- **Keyed by the normalized command line too.** `cargo test` and `cargo clippy` on one
-  branch are different questions and must not overwrite each other's answers. Without
-  this, the second command run on a branch destroys the first one's baseline on day one.
-- **A narrowed invocation degrades to first contact.** `cargo test parser::` executes a
-  subset, so every unexecuted test in the baseline would otherwise report as FIXED, which
-  is the silent falsehood principle 1 exists to prevent. Detect the narrowing — a
-  positional filter, `-k`, `--test`, an explicit path — and refuse to compare against a
-  full-suite baseline. Comparing a narrowed run against its own prior narrowed run is
-  fine, and the command key already gives that.
+  cannot be detected after the fact. A detached HEAD keys on its commit; no git keys on
+  the directory. Only `.git/HEAD` is read, following a worktree's pointer file, because
+  the answer is two file reads and a spawned `git` would cost more than the rest of ck.
+- **Keyed by the command line as typed**, leading assignments included, and by the
+  directory it ran in relative to the tree. `cargo test` and `cargo clippy` on one branch
+  are different questions and must not overwrite each other's answers; so are
+  `cargo test` in two workspace members. Without this, the second command run on a
+  branch destroys the first one's baseline on day one.
+- **A narrowed invocation is its own key**, which is what makes narrowing safe without
+  detecting it. `cargo test parser::` executes a subset, and compared against the full
+  suite every unexecuted test would report as FIXED, the silent falsehood principle 1
+  exists to prevent. Compared against its own previous run it is fine, and the command
+  key gives that for free.
 - Switching branches finds no baseline → first-contact behavior (principle 2).
-- Same for detached HEAD, no git at all, dirty tree.
+- A dirty tree is not a condition. It is every fix loop's normal state.
 - **Atomic writes**: temp file plus rename. Cheap insurance against a kill mid-write.
 
 ### Update policy
