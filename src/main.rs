@@ -11,6 +11,7 @@ mod adapter;
 mod cli;
 mod compare;
 mod exec;
+mod inspect;
 mod render;
 mod report;
 mod run;
@@ -23,6 +24,8 @@ ck — report what changed in a command's failures since the last run
 
 USAGE
     ck <command> [args...]
+    ck show <id>
+    ck
 
     The first non-flag token begins the command. Everything from there is
     passed through untouched, including its own flags.
@@ -53,7 +56,9 @@ OPTIONS
     -V, --version    Print the version
 
 COMMANDS
-    show <identity>  Retrieve suppressed detail for one failure
+    show <id>        The stored detail for one failure, by the id a
+                     compared run printed
+    (none)           The baselines recorded for this tree and branch
 
 EXIT
     ck exits with the wrapped command's own exit code. A command that could
@@ -73,12 +78,8 @@ fn main() -> std::process::ExitCode {
             println!("ck {}", env!("CARGO_PKG_VERSION"));
             0
         }
-        Ok(Invocation::Show(_)) => {
-            // Reserved in the grammar from the start so it never has to change,
-            // but there is nothing to retrieve until failures are being stored.
-            eprintln!("ck: show needs a baseline store, which this build does not have");
-            2
-        }
+        Ok(Invocation::Status) => inspect::status(),
+        Ok(Invocation::Show(handle)) => inspect::show(&handle),
         // On a passthrough there is no verdict for `verify` to show, and the
         // raw output is what passthrough already prints.
         Ok(Invocation::Run { env, argv, verify }) => match adapter::detect(&argv) {

@@ -94,31 +94,17 @@ impl Key {
 
     /// The baseline's path below the store root.
     pub fn path(&self) -> PathBuf {
-        PathBuf::from(self.repo_segment())
-            .join(self.branch_segment())
-            .join(format!("{}.json", self.command_segment()))
+        branch_dir(&self.place).join(format!("{}.json", self.command_segment()))
     }
 
-    /// The working tree's name, made unique by its full path. Two clones of
-    /// one repository are two trees with two states, and must not share.
+    #[cfg(test)]
     fn repo_segment(&self) -> String {
-        let root = &self.place.root;
-        let name = root
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "root".to_string());
-        let hash = fnv1a(root.as_os_str().as_encoded_bytes());
-        format!("{}-{:010x}", encode(&name), hash & 0xff_ffff_ffff)
+        repo_segment(&self.place)
     }
 
-    /// `@` cannot survive `encode`, so the two states that are not branches
-    /// can never collide with one that is.
+    #[cfg(test)]
     fn branch_segment(&self) -> String {
-        match &self.place.branch {
-            Branch::Named(name) => encode(name),
-            Branch::Detached(commit) => format!("@{commit}"),
-            Branch::NoGit => "@no-git".to_string(),
-        }
+        branch_segment(&self.place)
     }
 
     /// A readable prefix for the human, a hash of everything for the key.
@@ -148,6 +134,58 @@ impl Key {
         bytes.extend_from_slice(c.dir.as_bytes());
         format!("{slug}-{:016x}", fnv1a(&bytes))
     }
+}
+
+/// Where every baseline for one branch of one tree lives, below the root.
+pub fn branch_dir(place: &Place) -> PathBuf {
+    PathBuf::from(repo_segment(place)).join(branch_segment(place))
+}
+
+/// The working tree's name, made unique by its full path. Two clones of
+/// one repository are two trees with two states, and must not share.
+fn repo_segment(place: &Place) -> String {
+    let root = &place.root;
+    let name = root
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "root".to_string());
+    let hash = fnv1a(root.as_os_str().as_encoded_bytes());
+    format!("{}-{:010x}", encode(&name), hash & 0xff_ffff_ffff)
+}
+
+/// `@` cannot survive `encode`, so the two states that are not branches
+/// can never collide with one that is.
+fn branch_segment(place: &Place) -> String {
+    match &place.branch {
+        Branch::Named(name) => encode(name),
+        Branch::Detached(commit) => format!("@{commit}"),
+        Branch::NoGit => "@no-git".to_string(),
+    }
+}
+
+/// Every baseline recorded for `place`, in a stable order, read without a
+/// lock: a rename is atomic, so a reader sees either the old file or the
+/// new one. Files that cannot be used are returned as such rather than
+/// dropped, so a listing never silently omits a baseline that exists.
+pub fn list(place: &Place) -> Vec<Load> {
+    let Some(root) = root() else {
+        return Vec::new();
+    };
+    list_in(&root, place)
+}
+
+fn list_in(root: &Path, place: &Place) -> Vec<Load> {
+    let dir = root.join(branch_dir(place));
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut paths: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .collect();
+    paths.sort();
+    paths.iter().map(|p| read(p)).collect()
 }
 
 /// Make a string safe as one path component without losing anything: every
@@ -237,9 +275,34 @@ impl Slot {
     }
 
     pub fn load(&self) -> Load {
+        match &self.path {
+            Some(path) => read(path),
+            None => Load::Missing,
+        }
+    }
+
+    /// Write the baseline, or skip it. `Err` is only ever the reason it was
+    /// skipped, which the caller may mention; it is never fatal.
+    pub fn save(&self, baseline: &Baseline) -> Result<(), Skipped> {
         let Some(path) = &self.path else {
-            return Load::Missing;
+            return Err(Skipped::NoStore);
         };
+        if self.lock.is_none() {
+            return Err(Skipped::Contended);
+        }
+        let bytes = serde_json::to_vec_pretty(baseline).map_err(|e| Skipped::Io(e.to_string()))?;
+        let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
+        let written = fs::write(&tmp, bytes).and_then(|()| fs::rename(&tmp, path));
+        if let Err(e) = written {
+            let _ = fs::remove_file(&tmp);
+            return Err(Skipped::Io(e.to_string()));
+        }
+        Ok(())
+    }
+}
+
+fn read(path: &Path) -> Load {
+    {
         let bytes = match fs::read(path) {
             Ok(bytes) => bytes,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Load::Missing,
@@ -268,25 +331,6 @@ impl Slot {
             Ok(baseline) => Load::Found(baseline),
             Err(e) => Load::Unusable(format!("{} could not be decoded: {e}", path.display())),
         }
-    }
-
-    /// Write the baseline, or skip it. `Err` is only ever the reason it was
-    /// skipped, which the caller may mention; it is never fatal.
-    pub fn save(&self, baseline: &Baseline) -> Result<(), Skipped> {
-        let Some(path) = &self.path else {
-            return Err(Skipped::NoStore);
-        };
-        if self.lock.is_none() {
-            return Err(Skipped::Contended);
-        }
-        let bytes = serde_json::to_vec_pretty(baseline).map_err(|e| Skipped::Io(e.to_string()))?;
-        let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
-        let written = fs::write(&tmp, bytes).and_then(|()| fs::rename(&tmp, path));
-        if let Err(e) = written {
-            let _ = fs::remove_file(&tmp);
-            return Err(Skipped::Io(e.to_string()));
-        }
-        Ok(())
     }
 }
 
@@ -578,6 +622,37 @@ mod tests {
         assert!(matches!(slot.load(), Load::Unusable(_)));
         fs::write(slot.path().unwrap(), "[]").unwrap();
         assert!(matches!(slot.load(), Load::Unusable(_)));
+    }
+
+    #[test]
+    fn listing_finds_every_baseline_on_the_branch_and_nothing_else() {
+        let root = scratch();
+        let main = |argv: &[&str]| key(Branch::Named("main".into()), argv);
+        for k in [main(&["cargo", "test"]), main(&["cargo", "build"])] {
+            Slot::open_in(&root, &k).save(&baseline(&k)).unwrap();
+        }
+        let other = key(Branch::Named("other".into()), &["cargo", "test"]);
+        Slot::open_in(&root, &other)
+            .save(&baseline(&other))
+            .unwrap();
+        let torn = main(&["make"]);
+        let slot = Slot::open_in(&root, &torn);
+        fs::write(slot.path().unwrap(), "{").unwrap();
+
+        let listed = list_in(&root, &place(Branch::Named("main".into())));
+        assert_eq!(listed.len(), 3);
+        let found: Vec<Vec<String>> = listed
+            .iter()
+            .filter_map(|l| match l {
+                Load::Found(b) => Some(b.command.argv.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(found.len(), 2);
+        assert!(found.iter().any(|a| a == &["cargo", "build"]));
+        assert!(found.iter().any(|a| a == &["cargo", "test"]));
+        assert!(listed.iter().any(|l| matches!(l, Load::Unusable(_))));
+        assert!(list_in(&root, &place(Branch::NoGit)).is_empty());
     }
 
     #[test]

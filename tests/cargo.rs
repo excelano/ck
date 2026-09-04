@@ -599,3 +599,100 @@ fn without_anywhere_to_keep_a_baseline_every_run_is_first_contact() {
         );
     }
 }
+
+// Reading the store back.
+
+/// The handle on the first STILL FAILING line.
+fn first_handle(stdout: &str) -> String {
+    let line = stdout
+        .lines()
+        .skip_while(|l| !l.starts_with("STILL FAILING"))
+        .nth(1)
+        .expect("a still-failing line");
+    line.split_whitespace().next().unwrap().to_string()
+}
+
+#[test]
+fn show_prints_the_stored_detail_for_a_handle() {
+    let probe = Probe::with_lib(BROKEN);
+    let _serial = SERIAL.lock().unwrap();
+    probe.wrapped(BROKEN, &["build"]);
+    let handle = first_handle(&probe.wrapped(BROKEN, &["build"]).stdout);
+    assert_eq!(handle.len(), 10);
+
+    let shown = probe.run(CK, &["show", &handle]);
+    assert_eq!(shown.code, Some(0));
+    assert!(
+        shown
+            .stdout
+            .starts_with("error[E0425]: cannot find function `missing` in this scope\n"),
+        "{}",
+        shown.stdout
+    );
+    assert!(shown.stdout.contains(" --> src/lib.rs:1:26\n"));
+    assert!(
+        shown.stdout.ends_with(&format!(
+            "\nck: {handle} from `cargo build`: failing for 2 runs, last run just now\n"
+        )),
+        "{}",
+        shown.stdout
+    );
+
+    // Fixed, the failure is still there to be shown, and says so.
+    probe.wrapped(GREEN, &["build"]);
+    let shown = probe.run(CK, &["show", &handle]);
+    assert!(
+        shown.stdout.contains("not seen for 1 run"),
+        "{}",
+        shown.stdout
+    );
+}
+
+#[test]
+fn show_of_an_unknown_handle_says_so_and_exits_two() {
+    let probe = Probe::with_lib(GREEN);
+    let out = probe.run(CK, &["show", "0000000000"]);
+    assert_eq!(out.code, Some(2));
+    assert_eq!(out.stdout, "");
+    assert!(out.stderr.starts_with("ck: no failure with id 0000000000"));
+}
+
+#[test]
+fn bare_ck_lists_the_baselines_for_this_tree_and_branch() {
+    let probe = Probe::with_lib(BROKEN);
+    let _serial = SERIAL.lock().unwrap();
+    probe.on_branch("main");
+
+    let empty = probe.run(CK, &[]);
+    assert_eq!(empty.code, Some(0));
+    assert!(
+        empty.stdout.starts_with("ck: no baselines on main;"),
+        "{}",
+        empty.stdout
+    );
+
+    probe.wrapped(BROKEN, &["build"]);
+    probe.wrapped(BROKEN, &["build"]);
+    probe.wrapped(WARNING, &["check"]);
+    let listed = probe.run(CK, &[]);
+    assert_eq!(listed.code, Some(0));
+    let lines: Vec<&str> = listed.stdout.lines().collect();
+    assert_eq!(lines[0], "ck: 2 baselines on main");
+    assert_eq!(
+        lines[1],
+        "  cargo build   1 error, 0 warnings   2 runs, just now"
+    );
+    assert_eq!(
+        lines[2],
+        "  cargo check   0 errors, 1 warning   1 run, just now"
+    );
+    assert_eq!(lines.len(), 3);
+
+    probe.on_branch("experiment");
+    assert!(
+        probe
+            .run(CK, &[])
+            .stdout
+            .starts_with("ck: no baselines on experiment;")
+    );
+}

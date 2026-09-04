@@ -155,7 +155,7 @@ pub fn parsed(out: &mut impl Write, report: &RunReport, code: i32) -> std::io::R
 pub const RAW_SEPARATOR: &str = "---- raw output ----";
 
 /// `error[E0425] src/lib.rs:4:9  message`, the one-line form.
-fn headline(f: &Failure) -> String {
+pub fn headline(f: &Failure) -> String {
     let rule = f.rule.as_deref().unwrap_or("-");
     let severity = match f.severity {
         Severity::Error => "error",
@@ -199,7 +199,7 @@ fn errors_and_warnings(errors: usize, warnings: usize) -> String {
     )
 }
 
-fn plural(n: usize, word: &str) -> String {
+pub fn plural(n: usize, word: &str) -> String {
     if n == 1 {
         word.to_string()
     } else {

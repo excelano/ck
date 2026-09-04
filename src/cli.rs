@@ -11,6 +11,8 @@
 pub enum Invocation {
     Help,
     Version,
+    /// Bare `ck`: report the baselines for the current tree and branch.
+    Status,
     /// Retrieve suppressed detail for one failure.
     Show(String),
     /// Run this command line, verbatim, with these variables added to its
@@ -93,14 +95,13 @@ pub fn parse(args: &[String]) -> Result<Invocation, ParseError> {
 
     loop {
         let Some(first) = rest.first().map(String::as_str) else {
-            // Bare `ck` reports what it can rather than erroring; once a
-            // baseline store exists this should report the baseline for the
-            // current repo and branch instead of the help text. A flag with
-            // nothing after it is a different thing, and an error.
+            // Bare `ck` reports what it knows rather than erroring, per the
+            // no-argument convention. A flag with nothing after it is a
+            // different thing, and an error.
             return if verify {
                 Err(ParseError::FlagWithoutCommand("--verify".into()))
             } else {
-                Ok(Invocation::Help)
+                Ok(Invocation::Status)
             };
         };
 
@@ -299,7 +300,7 @@ mod tests {
 
     #[test]
     fn bare_invocation_reports_rather_than_errors() {
-        assert_eq!(parse(&[]).unwrap(), Invocation::Help);
+        assert_eq!(parse(&[]).unwrap(), Invocation::Status);
     }
 
     #[test]
