@@ -10,11 +10,15 @@
 
 pub mod cargo;
 
+use serde::{Deserialize, Serialize};
+
 use crate::exec::Captured;
 use crate::report::RunReport;
 
-/// Which runner matched.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+/// Which runner matched. Serialized by name into the baseline, so a rename
+/// here is a schema change.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum AdapterId {
     Cargo,
 }

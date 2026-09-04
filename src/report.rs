@@ -6,6 +6,8 @@
 //! captured at ingest rather than reconstructed later, and the raw output is
 //! always retained. Nothing in here knows what a runner is.
 
+use serde::{Deserialize, Serialize};
+
 use crate::adapter::AdapterId;
 use crate::exec::Captured;
 
@@ -37,14 +39,14 @@ pub enum Parse {
     Failed(String),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct Totals {
     pub passed: usize,
     pub failed: usize,
     pub ignored: usize,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Failure {
     pub identity: Identity,
     pub severity: Severity,
@@ -58,20 +60,21 @@ pub struct Failure {
     pub detail: Option<String>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Severity {
     Error,
     Warning,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Location {
     pub file: String,
     pub line: usize,
     pub column: usize,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Identity {
     pub tier: Tier,
     pub confidence: Confidence,
@@ -80,7 +83,8 @@ pub struct Identity {
     pub key: String,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Tier {
     /// The runner's own name for the thing.
     Node,
@@ -90,7 +94,8 @@ pub enum Tier {
     Hash,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Confidence {
     Canonical,
     /// Worth a marker when ck claims something is new on it.
@@ -107,9 +112,10 @@ impl Identity {
 }
 
 /// FNV-1a, 64-bit. Written out rather than taken from the standard hasher
-/// because handles are stored and compared across runs, and the standard
-/// hasher does not promise the same output from one toolchain to the next.
-fn fnv1a(bytes: &[u8]) -> u64 {
+/// because handles and store paths are compared across runs, and the
+/// standard hasher does not promise the same output from one toolchain to
+/// the next.
+pub fn fnv1a(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for &b in bytes {
         hash ^= u64::from(b);

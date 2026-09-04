@@ -12,6 +12,10 @@ mod cli;
 mod exec;
 mod render;
 mod report;
+// Built and tested ahead of the comparison that reads it; the allowance
+// goes with the next step.
+#[allow(dead_code)]
+mod store;
 
 use cli::{Invocation, ParseError};
 
