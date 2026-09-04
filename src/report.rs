@@ -46,7 +46,7 @@ pub struct Totals {
     pub ignored: usize,
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Failure {
     pub identity: Identity,
     pub severity: Severity,
