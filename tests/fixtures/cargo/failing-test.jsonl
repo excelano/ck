@@ -1,0 +1,33 @@
+{"reason":"compiler-artifact","package_id":"path+file:///work/cktest#0.1.0","manifest_path":"/work/cktest/Cargo.toml","target":{"kind":["lib"],"crate_types":["lib"],"name":"cktest","src_path":"/work/cktest/src/lib.rs","edition":"2024","doc":true,"doctest":true,"test":true},"profile":{"opt_level":"0","debuginfo":1,"debug_assertions":true,"overflow_checks":true,"test":false},"features":[],"filenames":["/home/anderix/.cache/cargo-target/debug/deps/libcktest-53c4dfd2395de09d.rlib","/home/anderix/.cache/cargo-target/debug/deps/libcktest-53c4dfd2395de09d.rmeta"],"executable":null,"fresh":false}
+{"reason":"compiler-artifact","package_id":"path+file:///work/cktest#0.1.0","manifest_path":"/work/cktest/Cargo.toml","target":{"kind":["lib"],"crate_types":["lib"],"name":"cktest","src_path":"/work/cktest/src/lib.rs","edition":"2024","doc":true,"doctest":true,"test":true},"profile":{"opt_level":"0","debuginfo":1,"debug_assertions":true,"overflow_checks":true,"test":true},"features":[],"filenames":["/home/anderix/.cache/cargo-target/debug/deps/cktest-b78d0c53029bf47e"],"executable":"/home/anderix/.cache/cargo-target/debug/deps/cktest-b78d0c53029bf47e","fresh":false}
+{"reason":"build-finished","success":true}
+
+running 11 tests
+test stats::tests::counts_repeated_words ... ok
+test stats::tests::mean_length_of_empty_text_is_zero ... ok
+test stats::tests::mean_length_is_averaged_over_words ... ok
+test stats::tests::top_breaks_ties_alphabetically ... ok
+test stats::tests::top_is_ordered_by_count ... FAILED
+test stats::tests::top_of_more_than_exists_returns_everything ... ok
+test tokens::tests::empty_text_yields_nothing ... ok
+test tokens::tests::inner_punctuation_survives ... ok
+test tokens::tests::normalisation_lowercases_and_strips ... ok
+test tokens::tests::punctuation_is_trimmed_from_both_ends ... ok
+test tokens::tests::splits_on_whitespace ... ok
+
+failures:
+
+---- stats::tests::top_is_ordered_by_count stdout ----
+
+thread 'stats::tests::top_is_ordered_by_count' (112573) panicked at src/stats.rs:49:9:
+assertion `left == right` failed
+  left: [("the", 3)]
+ right: [("the", 3), ("cat", 2)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    stats::tests::top_is_ordered_by_count
+
+test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

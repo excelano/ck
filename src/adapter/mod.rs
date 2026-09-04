@@ -11,6 +11,7 @@
 pub mod cargo;
 
 use crate::exec::Captured;
+use crate::report::RunReport;
 
 /// Which runner matched.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -41,5 +42,12 @@ pub fn detect(argv: &[String]) -> Option<Match> {
 pub fn dump_raw(adapter: AdapterId, captured: &Captured) {
     match adapter {
         AdapterId::Cargo => cargo::dump_raw(captured),
+    }
+}
+
+/// Turn a captured run into the normalized record.
+pub fn parse(adapter: AdapterId, captured: Captured) -> RunReport {
+    match adapter {
+        AdapterId::Cargo => cargo::parse(captured),
     }
 }

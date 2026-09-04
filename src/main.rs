@@ -10,6 +10,8 @@
 mod adapter;
 mod cli;
 mod exec;
+mod render;
+mod report;
 
 use cli::{Invocation, ParseError};
 
@@ -73,12 +75,15 @@ fn main() -> std::process::ExitCode {
             eprintln!("ck: show needs a baseline store, which this build does not have");
             2
         }
-        // `verify` has nothing to show until a runner's output is parsed;
-        // on a passthrough there is no verdict, and the raw output is what
-        // passthrough already prints.
-        Ok(Invocation::Run { env, argv, .. }) => match adapter::detect(&argv) {
+        // On a passthrough there is no verdict for `verify` to show, and the
+        // raw output is what passthrough already prints.
+        Ok(Invocation::Run { env, argv, verify }) => match adapter::detect(&argv) {
             None => exec::run(&env, &argv),
             Some(matched) => match exec::capture(&env, &matched.argv) {
+                Ok(captured) if verify => {
+                    let report = adapter::parse(matched.adapter, captured);
+                    render::verify(&report)
+                }
                 Ok(captured) => {
                     // Every run is first contact until there is a baseline
                     // to compare against, and first contact prints what the

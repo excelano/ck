@@ -181,8 +181,9 @@ fn warnings_read_the_same_and_still_succeed() {
 
 #[test]
 fn test_output_stays_on_stdout_after_the_build() {
+    // One thread, so libtest reports the tests in the same order both times.
     let probe = Probe::with_lib(FAILING_TEST);
-    let (bare, wrapped) = probe.both(FAILING_TEST, &["test"]);
+    let (bare, wrapped) = probe.both(FAILING_TEST, &["test", "--", "--test-threads=1"]);
     assert_eq!(bare, wrapped);
     assert_eq!(bare.code, Some(101));
     assert!(bare.stdout.contains("test tests::is_forty_two ... FAILED"));

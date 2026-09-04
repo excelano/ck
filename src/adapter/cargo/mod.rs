@@ -13,15 +13,22 @@
 //! caller asked for a particular shape of output and a wrapper that overrides
 //! that is the wrapper that gets bypassed.
 //!
+//! The parser lives in `diagnostics`; this module owns the command line and
+//! the raw replay.
+//!
 //! Matching is conservative. Cargo's own flags before the subcommand are
 //! walked with a fixed list of which ones take a value; an unfamiliar one
 //! means the subcommand cannot be found with confidence, and the command
 //! passes through. Passthrough is never wrong. A false match — injecting the
 //! flag into a command line that was read incorrectly — is.
 
+mod diagnostics;
+
 use std::io::Write;
 
 use crate::exec::{Captured, Stream};
+
+pub use diagnostics::parse;
 
 /// The subcommands whose output is compiler diagnostics, with cargo's
 /// built-in single-letter aliases.
