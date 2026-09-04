@@ -45,6 +45,30 @@ own sake — a query result, a report, a build log you are reading deliberately.
 nothing there either. Shadow mode prints the verdict and the raw output together when you
 want both.
 
+## What it understands today
+
+`cargo build`, `check`, `clippy`, and `test` are run in cargo's JSON mode and read back
+as cargo's own output, so `ck cargo build` prints what `cargo build` prints. The one
+visible difference is the loss of color, since the streams are captured rather than
+inherited. Underneath, every compiler diagnostic has been given an identity.
+
+`ck --verify <command>` shows that work: the parsed verdict, then the raw output under a
+separator, so the two can be checked against each other in one screenful.
+
+```sh
+$ ck --verify cargo build
+ck --verify: 2 errors, 0 warnings, exit 101
+  error[E0425] src/stats.rs:17:43  cannot find function `frequencies` in this scope
+      id 206680554e  src/stats.rs|E0425|frequencies  [constructed]
+  error[E0425] src/stats.rs:41:17  cannot find function `frequencies` in this scope
+      id 14e127007f  src/stats.rs|E0425|frequencies#2  [constructed, low confidence]
+---- raw output ----
+```
+
+Nothing is stored yet, so every run is a first run and prints in full. The comparison
+against the previous run, which is the one-line answer at the top of this page, is the
+next thing to land.
+
 ## Design
 
 `DESIGN.md` carries the reasoning: why failure identity is the hard part, why collisions

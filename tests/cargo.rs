@@ -245,3 +245,57 @@ fn an_interrupted_run_dumps_what_it_captured_and_reports_the_signal() {
         "captured output before the interrupt should be dumped, got: {stdout:?}"
     );
 }
+
+/// The whole verify view on stdout, cut at the raw-output separator.
+fn verdict(probe: &Probe, lib_rs: &str, cargo_args: &[&str]) -> (String, Option<i32>) {
+    let _serial = SERIAL.lock().unwrap();
+    probe.set_lib(lib_rs);
+    let mut args = vec!["--verify", "cargo"];
+    args.extend_from_slice(cargo_args);
+    let out = probe.run(CK, &args);
+    let head = out
+        .stdout
+        .split("---- raw output ----\n")
+        .next()
+        .unwrap()
+        .to_string();
+    assert!(
+        out.stdout.contains("---- raw output ----\n"),
+        "verify should end with the raw output"
+    );
+    (head, out.code)
+}
+
+#[test]
+fn verify_names_each_diagnostic_and_then_shows_the_raw_output() {
+    let probe = Probe::with_lib(BROKEN);
+    let (head, code) = verdict(&probe, BROKEN, &["build"]);
+    assert_eq!(code, Some(101));
+    assert!(
+        head.starts_with("ck --verify: 1 error, 0 warnings, exit 101\n"),
+        "{head}"
+    );
+    assert!(head.contains("error[E0425] src/lib.rs:1:26  cannot find function `missing`"));
+    assert!(head.contains("src/lib.rs|E0425|missing  [constructed]"));
+    // The raw output still reaches stderr, where cargo puts diagnostics.
+    let out = probe.run(CK, &["--verify", "cargo", "build"]);
+    assert!(out.stderr.contains("cannot find function `missing`"));
+}
+
+#[test]
+fn verify_reports_a_failed_command_that_produced_no_diagnostics() {
+    let probe = Probe::with_lib(FAILING_TEST);
+    let (head, code) = verdict(&probe, FAILING_TEST, &["test"]);
+    assert_eq!(code, Some(101));
+    assert!(head.contains("0 errors, 0 warnings, exit 101"));
+    assert!(head.contains("output after the build was not parsed"));
+    assert!(head.contains("exited 101: not a clean run"));
+}
+
+#[test]
+fn verify_on_a_clean_build_says_so_and_exits_zero() {
+    let probe = Probe::with_lib(GREEN);
+    let (head, code) = verdict(&probe, GREEN, &["check"]);
+    assert_eq!(code, Some(0));
+    assert_eq!(head, "ck --verify: 0 errors, 0 warnings, exit 0\n");
+}
