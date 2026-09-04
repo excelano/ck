@@ -12,6 +12,7 @@ mod cli;
 mod compare;
 mod exec;
 mod inspect;
+mod raw;
 mod render;
 mod report;
 mod run;

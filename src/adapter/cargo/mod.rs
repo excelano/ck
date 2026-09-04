@@ -24,9 +24,8 @@
 
 mod diagnostics;
 
-use std::io::Write;
-
 use crate::exec::{Captured, Stream};
+use crate::raw;
 
 pub use diagnostics::parse;
 
@@ -127,38 +126,33 @@ enum Line {
 /// goes to stdout untouched. Ordering across the two streams is the order
 /// the chunks arrived, which is as close to cargo's own interleaving as a
 /// pipe allows.
-pub fn dump_raw(captured: &Captured) {
-    let mut out = std::io::stdout().lock();
-    let mut err = std::io::stderr().lock();
-    // A write failure here means the reader has gone away, and there is
-    // nobody left to tell.
+pub fn replay(captured: &Captured) -> Vec<raw::Line> {
+    let mut lines = Vec::new();
     let mut pending: Vec<u8> = Vec::new();
     let mut building = true;
     for chunk in &captured.chunks {
         match chunk.stream {
-            Stream::Stderr => {
-                let _ = err.write_all(&chunk.bytes);
-            }
+            Stream::Stderr => lines.extend(raw::split(Stream::Stderr, &chunk.bytes)),
             Stream::Stdout => {
                 pending.extend_from_slice(&chunk.bytes);
                 while let Some(end) = pending.iter().position(|&b| b == b'\n') {
                     let line: Vec<u8> = pending.drain(..=end).collect();
                     match classify(&line, &mut building) {
                         Line::Diagnostic(text) => {
-                            let _ = err.write_all(text.as_bytes());
+                            lines.extend(raw::split(Stream::Stderr, text.as_bytes()));
                         }
                         Line::Scaffolding => {}
-                        Line::Text => {
-                            let _ = out.write_all(&line);
-                        }
+                        Line::Text => lines.push(raw::Line {
+                            stream: Stream::Stdout,
+                            bytes: line,
+                        }),
                     }
                 }
             }
         }
     }
-    let _ = out.write_all(&pending);
-    let _ = out.flush();
-    let _ = err.flush();
+    lines.extend(raw::split(Stream::Stdout, &pending));
+    lines
 }
 
 /// Decide what a stdout line is. `building` is true until `build-finished`

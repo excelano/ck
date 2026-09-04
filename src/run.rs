@@ -16,6 +16,7 @@ use std::os::unix::process::ExitStatusExt;
 use crate::adapter::{self, AdapterId};
 use crate::compare::{self, Comparison};
 use crate::exec::{self, Captured};
+use crate::raw;
 use crate::render;
 use crate::report::{Parse, RunReport};
 use crate::store::repo::Place;
@@ -30,11 +31,18 @@ pub fn finish(
     argv: &[String],
     verify: bool,
 ) -> i32 {
+    // A current directory that cannot be read is a directory that has been
+    // deleted underneath the shell; the command is about to say so itself.
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let key = Key::new(Place::discover(&cwd), env, argv);
+    let log = store::log_path(&key);
+    let dump = |captured: &Captured| raw::emit(&adapter::replay(adapter, captured), log.as_deref());
+
     // An interrupted run produces no verdict: whatever was captured, then
     // 128 + signal. A baseline missing everything that never ran would
     // report all of it as fixed next time.
     if captured.status.signal().is_some() {
-        adapter::dump_raw(adapter, &captured);
+        dump(&captured);
         return exec::exit_code(&captured.status);
     }
     let code = exec::exit_code(&captured.status);
@@ -49,14 +57,16 @@ pub fn finish(
         );
         None
     } else {
-        Some(against_baseline(&report, env, argv, code))
+        Some(against_baseline(&report, key, code))
     };
 
     let mut out = std::io::stdout().lock();
     let exit = match &compared {
         None => {
             if !verify {
-                adapter::dump_raw(report.adapter, &report.raw);
+                drop(out);
+                dump(&report.raw);
+                out = std::io::stdout().lock();
             }
             code
         }
@@ -64,7 +74,9 @@ pub fn finish(
             // First contact prints what the bare command would have, plus
             // one line. In shadow mode the raw output comes at the end.
             if !verify {
-                adapter::dump_raw(report.adapter, &report.raw);
+                drop(out);
+                dump(&report.raw);
+                out = std::io::stdout().lock();
             }
             let _ = render::first_contact(&mut out, &report);
             let _ = out.flush();
@@ -82,23 +94,14 @@ pub fn finish(
         let _ = writeln!(out, "{}", render::RAW_SEPARATOR);
         let _ = out.flush();
         drop(out);
-        adapter::dump_raw(report.adapter, &report.raw);
+        dump(&report.raw);
     }
     exit
 }
 
 /// Compare against the stored baseline and advance it. The second value is
 /// whether this was first contact.
-fn against_baseline(
-    report: &RunReport,
-    env: &[(String, String)],
-    argv: &[String],
-    code: i32,
-) -> (Comparison, bool) {
-    // A current directory that cannot be read is a directory that has been
-    // deleted underneath the shell; the command is about to say so itself.
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let key = Key::new(Place::discover(&cwd), env, argv);
+fn against_baseline(report: &RunReport, key: Key, code: i32) -> (Comparison, bool) {
     let slot = Slot::open(&key);
     let previous = match slot.load() {
         Load::Found(baseline) => Some(baseline),

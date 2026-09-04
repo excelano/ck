@@ -696,3 +696,63 @@ fn bare_ck_lists_the_baselines_for_this_tree_and_branch() {
             .starts_with("ck: no baselines on experiment;")
     );
 }
+
+// The raw cap.
+
+const CHATTY_TEST: &str = "\
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn talks() {
+        for i in 1..=300 {
+            println!(\"line {i}\");
+        }
+    }
+}
+";
+
+#[test]
+fn a_long_raw_dump_is_cut_to_head_and_tail_with_the_rest_in_a_file() {
+    // `cargo test` is still a raw dump today (the test output is unparsed),
+    // and stdout here is a pipe, so the cap applies.
+    let probe = Probe::with_lib(CHATTY_TEST);
+    let _serial = SERIAL.lock().unwrap();
+    let out = probe.wrapped(CHATTY_TEST, &["test", "--", "--nocapture"]);
+    assert_eq!(out.code, Some(0));
+    assert!(out.stdout.contains("line 1\n"), "{}", out.stdout);
+    assert!(out.stdout.contains("line 300\n"), "{}", out.stdout);
+    assert!(!out.stdout.contains("line 150\n"), "the middle is cut");
+
+    let marker = out
+        .stdout
+        .lines()
+        .find(|l| l.starts_with("ck: ") && l.contains("lines not shown"))
+        .expect("a truncation marker");
+    let path = marker.rsplit("full output in ").next().unwrap();
+    let log = fs::read_to_string(path).expect("the full output is on disk");
+    assert!(log.contains("line 150\n"));
+    assert!(log.contains("line 300\n"));
+    assert!(
+        log.contains("running 1 test\n"),
+        "both streams, in order: {log}"
+    );
+    assert!(Path::new(path).starts_with(probe.dir.join("cache")));
+    assert!(path.ends_with(".log"));
+    assert!(
+        probe.baselines().is_empty(),
+        "an unparsed run records nothing"
+    );
+}
+
+#[test]
+fn a_short_raw_dump_is_not_cut_and_writes_no_file() {
+    let probe = Probe::with_lib(FAILING_TEST);
+    let _serial = SERIAL.lock().unwrap();
+    let out = probe.wrapped(FAILING_TEST, &["test"]);
+    assert!(!out.stdout.contains("lines not shown"));
+    assert!(!probe.dir.join("cache").exists() || probe.baselines().is_empty());
+    let logs = fs::read_dir(probe.dir.join("cache"))
+        .map(|d| d.count())
+        .unwrap_or(0);
+    assert_eq!(logs, 0, "nothing is written for an uncut dump");
+}

@@ -13,6 +13,7 @@ pub mod cargo;
 use serde::{Deserialize, Serialize};
 
 use crate::exec::Captured;
+use crate::raw;
 use crate::report::RunReport;
 
 /// Which runner matched. Serialized by name into the baseline, so a rename
@@ -39,13 +40,13 @@ pub fn detect(argv: &[String]) -> Option<Match> {
     })
 }
 
-/// Print a captured run the way the runner itself would have, without
+/// A captured run as the runner itself would have printed it, without
 /// interpretation. This is the first-contact path and the raw dump behind
 /// every parse that cannot be trusted: nothing is summarised, nothing is
 /// dropped except the runner's own machine-readable scaffolding.
-pub fn dump_raw(adapter: AdapterId, captured: &Captured) {
+pub fn replay(adapter: AdapterId, captured: &Captured) -> Vec<raw::Line> {
     match adapter {
-        AdapterId::Cargo => cargo::dump_raw(captured),
+        AdapterId::Cargo => cargo::replay(captured),
     }
 }
 

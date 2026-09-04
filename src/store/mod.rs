@@ -136,6 +136,12 @@ impl Key {
     }
 }
 
+/// Where the full raw output of a capped run goes: beside the baseline,
+/// under the same name. `None` when there is no store root at all.
+pub fn log_path(key: &Key) -> Option<PathBuf> {
+    root().map(|root| root.join(key.path()).with_extension("log"))
+}
+
 /// Where every baseline for one branch of one tree lives, below the root.
 pub fn branch_dir(place: &Place) -> PathBuf {
     PathBuf::from(repo_segment(place)).join(branch_segment(place))
