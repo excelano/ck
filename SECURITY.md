@@ -8,7 +8,7 @@ Please do not open public issues for security problems.
 
 ## Supported versions
 
-The latest 0.x release receives security fixes. Older versions are not supported.
+The latest release receives security fixes. Older releases are not supported. A repository with no releases is supported at its default branch.
 
 ## What ck can access
 
@@ -32,9 +32,4 @@ ck runs the command in its own process group and forwards SIGINT, SIGTERM, and S
 
 ## Verifying releases
 
-Every GitHub release includes a `.sha256` file next to each archive listing its SHA-256 hash. Verify any download before running it:
-
-    sha256sum ck-x86_64-unknown-linux-gnu.tar.xz
-    # compare against the value in ck-x86_64-unknown-linux-gnu.tar.xz.sha256
-
-Release artifacts are built by GitHub Actions from a tagged commit using the cargo-dist configuration in this repo. The workflow and build configuration are public and auditable.
+ck has no published releases and no prebuilt archives, so there is nothing to verify a download against. It is built from this repository, which means what you run is what you built from source you can read.
