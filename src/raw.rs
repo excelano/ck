@@ -13,6 +13,9 @@
 //! a line goes to the stream it came from, so what does get through still
 //! reads as the runner's output. If the file cannot be written nothing is
 //! cut at all: losing output silently is the one thing this must not do.
+//!
+//! Author: David M. Anderson
+//! Built with AI assistance (Claude, Anthropic)
 
 use std::io::{IsTerminal, Write};
 use std::path::Path;

@@ -19,6 +19,9 @@
 //! update costs one stale comparison, while a poisoned one costs trust.
 //! Writes go to a sibling temp file and are renamed into place, so a kill
 //! mid-write leaves the previous baseline intact.
+//!
+//! Author: David M. Anderson
+//! Built with AI assistance (Claude, Anthropic)
 
 pub mod repo;
 

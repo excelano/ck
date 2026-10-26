@@ -18,6 +18,9 @@
 //! Cargo emits the same diagnostic once per compile unit that hits it — the
 //! lib and the lib's tests, typically — so identical diagnostics collapse
 //! to one before anything is counted.
+//!
+//! Author: David M. Anderson
+//! Built with AI assistance (Claude, Anthropic)
 
 use serde_json::Value;
 

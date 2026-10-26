@@ -10,6 +10,9 @@
 //! Matching is on the identity key and nothing else. Location is payload,
 //! message is payload, and a failure that moved twelve lines down is the
 //! same failure; that is the whole reason identity is computed at ingest.
+//!
+//! Author: David M. Anderson
+//! Built with AI assistance (Claude, Anthropic)
 
 use crate::report::{Failure, RunReport, Severity};
 use crate::store::{Baseline, CommandLine, SCHEMA, Stored};

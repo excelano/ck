@@ -1,6 +1,7 @@
 //! ck — report what changed in a command's failures since the last run.
 //!
-//! Author: David M. Anderson. Written with AI assistance (Claude Code).
+//! Author: David M. Anderson
+//! Built with AI assistance (Claude, Anthropic)
 //!
 //! This build is the transparent wrapper and nothing more: it runs what you
 //! give it and gets out of the way. Comparison against a baseline arrives on

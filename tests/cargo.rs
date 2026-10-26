@@ -7,6 +7,9 @@
 //! store beside it, so nothing here touches the real cache. Runs are
 //! serialised because cargo's package-cache lock announces itself on stderr
 //! when contended, and that line would appear in one run and not the other.
+//!
+//! Author: David M. Anderson
+//! Built with AI assistance (Claude, Anthropic)
 
 use std::fs;
 use std::io::Read;

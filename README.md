@@ -55,8 +55,8 @@ want both.
 `cargo build`, `check`, and `clippy` are compared. Each is run in cargo's JSON mode,
 every diagnostic is given an identity, and the run is set against the previous run of
 the same command on the same branch. `cargo test` goes through the same path for its
-compile step, but the test output itself is not parsed yet, so a run that reaches the
-tests prints them in full. That parser is the next thing to land.
+compile step; the test output itself is not parsed, so a run that reaches the tests
+prints them in full.
 
 The first run of a command is a first run: it prints what the bare command would have,
 with one line added underneath saying a baseline was recorded. From the second run on,

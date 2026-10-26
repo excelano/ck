@@ -21,6 +21,9 @@
 //! means the subcommand cannot be found with confidence, and the command
 //! passes through. Passthrough is never wrong. A false match — injecting the
 //! flag into a command line that was read incorrectly — is.
+//!
+//! Author: David M. Anderson
+//! Built with AI assistance (Claude, Anthropic)
 
 mod diagnostics;
 

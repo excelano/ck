@@ -5,6 +5,9 @@
 //! failure carries the tier and confidence of its own identity, detail is
 //! captured at ingest rather than reconstructed later, and the raw output is
 //! always retained. Nothing in here knows what a runner is.
+//!
+//! Author: David M. Anderson
+//! Built with AI assistance (Claude, Anthropic)
 
 use serde::{Deserialize, Serialize};
 

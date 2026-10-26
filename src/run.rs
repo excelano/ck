@@ -9,6 +9,9 @@
 //!
 //! The baseline is written before anything is printed, so that a caller
 //! closing the pipe early cannot cost the next run its comparison.
+//!
+//! Author: David M. Anderson
+//! Built with AI assistance (Claude, Anthropic)
 
 use std::io::Write;
 use std::os::unix::process::ExitStatusExt;

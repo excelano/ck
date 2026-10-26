@@ -10,6 +10,9 @@
 //!
 //! Every line ck writes on its own behalf begins with `ck:` or sits in a
 //! section of its own, so nothing here can be mistaken for the runner.
+//!
+//! Author: David M. Anderson
+//! Built with AI assistance (Claude, Anthropic)
 
 use std::io::Write;
 

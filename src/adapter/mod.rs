@@ -7,6 +7,9 @@
 //! touched. Nothing about any particular runner may leak past this module;
 //! the rest of ck sees a rewritten command line and, later, a normalized
 //! report.
+//!
+//! Author: David M. Anderson
+//! Built with AI assistance (Claude, Anthropic)
 
 pub mod cargo;
 

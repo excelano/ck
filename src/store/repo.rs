@@ -10,6 +10,9 @@
 //! A worktree's `.git` is a file naming the real git directory, and the
 //! `HEAD` that matters is the one in there: the worktree's own, not the main
 //! checkout's. The same file shape serves a submodule.
+//!
+//! Author: David M. Anderson
+//! Built with AI assistance (Claude, Anthropic)
 
 use std::path::{Path, PathBuf};
 

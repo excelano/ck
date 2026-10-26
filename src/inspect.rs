@@ -3,6 +3,9 @@
 //! Both answer for the place the caller is standing in, the tree and the
 //! branch, across every command recorded there. Neither takes a lock;
 //! a rename is atomic, so a reader sees a whole file either way.
+//!
+//! Author: David M. Anderson
+//! Built with AI assistance (Claude, Anthropic)
 
 use std::io::Write;
 

@@ -5,6 +5,9 @@
 //! everything from there is passed through verbatim. `--` is accepted but
 //! never required, as the escape for a command whose own first token is a flag
 //! or whose name collides with a reserved word.
+//!
+//! Author: David M. Anderson
+//! Built with AI assistance (Claude, Anthropic)
 
 /// What the caller asked for.
 #[derive(Debug, PartialEq, Eq)]

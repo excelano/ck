@@ -27,6 +27,9 @@
 //! interrupt. Verified against the bare command, which does the same thing:
 //! SIGINT leaves the background job, SIGTERM takes it. Matching the raw command
 //! is the promise; do not "fix" this by escalating SIGINT to SIGTERM.
+//!
+//! Author: David M. Anderson
+//! Built with AI assistance (Claude, Anthropic)
 
 use std::io::{IsTerminal, Read};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
