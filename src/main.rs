@@ -2,11 +2,6 @@
 //!
 //! Author: David M. Anderson
 //! Built with AI assistance (Claude, Anthropic)
-//!
-//! This build is the transparent wrapper and nothing more: it runs what you
-//! give it and gets out of the way. Comparison against a baseline arrives on
-//! top of this, never in place of it — a wrapper that understands some runners
-//! well, not a test tool that happens to wrap commands.
 
 mod adapter;
 mod cli;
@@ -63,9 +58,13 @@ COMMANDS
     (none)           The baselines recorded for this tree and branch
 
 EXIT
-    ck exits with the wrapped command's own exit code. A command that could
-    not be started exits 127 (not found) or 126 (not executable); one killed
-    by a signal exits 128 plus the signal number.
+    A compared run exits 0 when nothing is new and 1 when a new error
+    appeared on a run the command itself failed. A run ck does not compare
+    (a command it does not recognize, a first run, output it could not
+    fully parse) exits with the command's own code. A command that could
+    not be started exits 127 (not found) or 126 (not executable); one
+    killed by a signal exits 128 plus the signal number. A usage error
+    exits 2.
 ";
 
 fn main() -> std::process::ExitCode {
