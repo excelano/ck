@@ -19,6 +19,15 @@ A few lines. The caller confirmed it did not regress and spent almost no context
 out. When something *is* new, that failure gets the compiler's full text and the ones
 already known get a line and nothing more.
 
+## Install
+
+ck has no prebuilt releases. Build and install it from this repository with a Rust
+toolchain; it builds on Unix-like systems only.
+
+```sh
+cargo install --git https://github.com/excelano/ck
+```
+
 ## Why not just run the command
 
 Because in a fix-test-fix loop, iteration twelve's output is nearly identical to iteration
@@ -50,7 +59,7 @@ own sake — a query result, a report, a build log you are reading deliberately.
 nothing there either. Shadow mode prints the verdict and the raw output together when you
 want both.
 
-## What it understands today
+## What it understands
 
 `cargo build`, `check`, and `clippy` are compared. Each is run in cargo's JSON mode,
 every diagnostic is given an identity, and the run is set against the previous run of
@@ -115,4 +124,4 @@ are worse than churn, and why the exit code is the product.
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
